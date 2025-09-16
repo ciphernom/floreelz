@@ -38,8 +38,8 @@ FloReelz is a decentralized video-sharing platform built with React, TypeScript,
 
 1. **Clone the repository**:
    ```bash
-   git clone <repository-url>
-   cd nostr-tok-ts
+   git clone https://github.com/ciphernom/floreelz.git
+   cd floreelz
    ```
 
 2. **Install dependencies**:
@@ -88,7 +88,7 @@ FloReelz is a decentralized video-sharing platform built with React, TypeScript,
 ## Project Structure
 
 ```
-nostr-tok-ts/
+floreelz/
 ├── dist/                    # Production build output
 ├── node_modules/            # Dependencies
 ├── src/
@@ -118,7 +118,7 @@ nostr-tok-ts/
 
 - **Nostr Relays**: Configured in `src/core/nostr.ts` with default relays (`relay.damus.io`, `relay.snort.social`, `nos.lol`).
 - **WebTorrent Trackers**: Configured in `src/core/webtorrent.ts` with public trackers (`tracker.btorrent.xyz`, `tracker.openwebtorrent.com`, `tracker.webtorrent.dev`).
-- **Proof of Work**: Nostr events use a Proof of Work difficulty of 0 (configurable in `src/core/nostr.ts`).
+- **Proof of Work**: Nostr events use a Proof of Work difficulty of 0 (configurable in `src/core/nostr.ts`). We will make this autoadjust as required in future versions.
 
 ## Development Notes
 
