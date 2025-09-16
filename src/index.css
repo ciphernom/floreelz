@@ -262,3 +262,33 @@ body {
 .overlay-info .author:hover {
   color: white;
 }
+.report-modal {
+  max-width: 400px;
+  padding: 20px;
+}
+
+.report-modal h3 {
+  margin-bottom: 20px;
+  text-align: center;
+}
+
+.report-reasons {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.report-reasons button {
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  color: white;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.report-reasons button:hover {
+  background: rgba(255, 255, 255, 0.2);
+}

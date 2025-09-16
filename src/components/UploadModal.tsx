@@ -3,6 +3,8 @@ import { nostrClient } from '../core/nostr';
 import { webTorrentClient } from '../core/webtorrent';
 import { toast } from 'react-hot-toast';
 
+const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB limit
+
 interface Props {
   isOpen: boolean;
   onClose: () => void;
@@ -20,10 +22,17 @@ function UploadModal({ isOpen, onClose }: Props) {
     console.log('Title:', title);
     console.log('Summary:', summary);
     
-    if (!file || !title || isUploading) {
-      console.warn('⚠️ Missing required fields or already uploading');
-      return;
-    }
+  if (!file || !title || isUploading) {
+    console.warn('⚠️ Missing required fields or already uploading');
+    toast.error(!file ? 'Please select a file' : !title ? 'Please add a title' : 'Already uploading');
+    return;
+  }
+
+  // Check file size
+  if (file.size > MAX_FILE_SIZE) {
+    toast.error(`File too large! Maximum size is ${MAX_FILE_SIZE / (1024 * 1024)}MB`);
+    return;
+  }
 
     setIsUploading(true);
     const toastId = toast.loading('Seeding video to network. Please keep this tab open.');

@@ -317,6 +317,38 @@ public remove(magnetURI: string) {
   return; // Don't remove anything
 }
   
+  // NEW: Public method to fully destroy a torrent (for hidden/bad content)
+public destroyTorrent(magnetURI: string): void {
+  let torrent = this.torrents.get(magnetURI);
+  if (!torrent) {
+    torrent = this.client.torrents.find(t => t.magnetURI === magnetURI);
+  }
+  if (!torrent) {
+    console.log('⚠️ No torrent found to destroy:', magnetURI.substring(0, 30) + '...');
+    return;
+  }
+
+  // Revoke blob URL if exists
+  const blobUrl = this.blobUrls.get(magnetURI);
+  if (blobUrl) {
+    URL.revokeObjectURL(blobUrl);
+    this.blobUrls.delete(magnetURI);
+    const size = this.blobSizes.get(magnetURI) || 0;
+    this.totalBlobSize -= size;
+    this.blobSizes.delete(magnetURI);
+    console.log(`🧹 Revoked blob for ${magnetURI.substring(0, 30)}... (freed ${(size / 1024 / 1024).toFixed(2)} MB)`);
+  }
+
+  // Clean from internal maps
+  this.torrents.delete(magnetURI);
+  this.seedingTorrents.delete(magnetURI);
+
+  // Stop seeding and disconnect
+  this.client.remove(torrent); // FIXED: Use client.remove(torrent) instead of torrent.remove()
+  console.log('💥 Destroyed torrent:', magnetURI.substring(0, 30) + '...');
+}
+  
+  
   private enforceMemoryLimit() {
       const MAX_CACHE_SIZE = 1024 * 1024 * 1024; // 1GB
       

@@ -9,6 +9,8 @@ import { minePow } from 'nostr-tools/nip13';
 import { toast } from 'react-hot-toast';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
 import { VIDEO_KIND, VideoData, VideoEvent } from '../types';
+import { ModerationSystem, ReportReason } from './moderation';
+import { ReputationManager } from './reputation';
 
 const RELAYS = [
   'wss://relay.damus.io',
@@ -24,6 +26,8 @@ class NostrClient {
   public publicKey: string;
   private videoSub: ReturnType<typeof this.pool.subscribeMany> | null = null;
   public likedVideos: Set<string> = new Set(); // Track liked video IDs
+  private moderationSystem: ModerationSystem;
+  public reputationManager: ReputationManager;
 
   constructor() {
     console.log('🔐 Initializing Nostr client...');
@@ -39,9 +43,23 @@ class NostrClient {
     }
     this.publicKey = getPublicKey(this.secretKey);
     console.log(`✅ Logged in with public key: ${this.publicKey}`);
+    this.moderationSystem = new ModerationSystem(this.secretKey, this.publicKey);
+    this.reputationManager = new ReputationManager();
   }
 
-  public subscribeToVideos(onVideo: (video: VideoData) => void) {
+  async reportVideo(videoId: string, authorPubkey: string, reason: ReportReason) {
+    // Calculate velocity before reporting
+    const velocityMultiplier = await this.moderationSystem.calculateVelocityPenalty(videoId);
+    // Record the report impact on reputation
+    this.reputationManager.recordReport(authorPubkey, this.publicKey, velocityMultiplier);
+    return this.moderationSystem.reportVideo(videoId, authorPubkey, reason);
+  }
+  
+
+  
+
+
+public subscribeToVideos(onVideo: (video: VideoData) => void) {
     console.log('📡 Subscribing to video feed...');
     console.log('Relays:', RELAYS);
     console.log('Filter:', { kinds: [VIDEO_KIND], limit: 20 });
@@ -55,7 +73,7 @@ class NostrClient {
       RELAYS,
       [{ kinds: [VIDEO_KIND], limit: 20 }],
       {
-        onevent: (event) => {
+        onevent: async (event) => {
           console.log('📨 Received event:', {
             id: event.id,
             kind: event.kind,
@@ -66,7 +84,20 @@ class NostrClient {
           
           const videoData = this.parseVideoEvent(event as VideoEvent);
           console.log('📹 Parsed video data:', videoData);
-          onVideo(videoData);
+          
+          // MODIFIED: Replace old moderation with reputation check
+          const uploaderRep = this.reputationManager.getReputationScore(event.pubkey);
+          console.log(`[Filter] Uploader ${event.pubkey.slice(0,10)}... rep: ${uploaderRep.toFixed(3)}`);
+          
+          if (!this.moderationSystem.shouldHideVideo(uploaderRep)) {
+            onVideo(videoData);
+          } else {
+            console.log(`[Filter] Hiding video ${event.id} (low rep: ${uploaderRep.toFixed(3)})`);
+            //  Destroy torrent for hidden videos (responsible behaviour)
+            import('../core/webtorrent').then(({ webTorrentClient }) => {
+              webTorrentClient.destroyTorrent(videoData.magnetURI);
+            });
+          }
         },
         oneose: () => {
           console.log('✅ End of stored events (EOSE)');
@@ -132,39 +163,42 @@ class NostrClient {
   }
 
 public async likeVideo(video: VideoData) {
-  const isLiked = this.likedVideos.has(video.id);
-  
-  if (isLiked) {
-    // Unlike - remove from set
-    console.log('💔 Unliking video:', video.title);
-    this.likedVideos.delete(video.id);
-  } else {
-    // Like - add to set and publish event
-    console.log('❤️ Liking video:', video.title);
-    this.likedVideos.add(video.id);
+    const isLiked = this.likedVideos.has(video.id);
     
-    let event: UnsignedEvent = {
-      kind: 7,
-      created_at: Math.floor(Date.now() / 1000),
-      pubkey: this.publicKey,
-      tags: [
-        ['e', video.id],
-        ['p', video.author],
-      ],
-      content: '❤️',
-    };
+    if (isLiked) {
+      // Unlike - remove from set
+      console.log('💔 Unliking video:', video.title);
+      this.likedVideos.delete(video.id);
+    } else {
+      // Like - add to set and publish event
+      console.log('❤️ Liking video:', video.title);
+      this.likedVideos.add(video.id);
+      
+      let event: UnsignedEvent = {
+        kind: 7,
+        created_at: Math.floor(Date.now() / 1000),
+        pubkey: this.publicKey,
+        tags: [
+          ['e', video.id],
+          ['p', video.author],
+        ],
+        content: '❤️',
+      };
 
-    console.log('Mining PoW for like...');
-    event = minePow(event, POW_DIFFICULTY);
+      console.log('Mining PoW for like...');
+      event = minePow(event, POW_DIFFICULTY);
 
-    const signedEvent = finalizeEvent(event, this.secretKey);
-    const results = await this.pool.publish(RELAYS, signedEvent);
+      const signedEvent = finalizeEvent(event, this.secretKey);
+      const results = await this.pool.publish(RELAYS, signedEvent);
+      
+      console.log('✅ Like published:', results);
+      
+      // NEW: Record positive reputation signal for author
+      this.reputationManager.recordLike(video.author, this.publicKey);
+    }
     
-    console.log('✅ Like published:', results);
+    return !isLiked; // Return new liked state
   }
-  
-  return !isLiked; // Return new liked state
-}
 
   private parseVideoEvent(event: VideoEvent): VideoData {
     console.log('🔍 Parsing video event...');
@@ -212,61 +246,61 @@ public async likeVideo(video: VideoData) {
       return videos;
     }
 
-    public async getUserStats(pubkey: string): Promise<{
-      following: number;
-      followers: number;
-      likes: number;
-    }> {
-      console.log('📊 Fetching stats for user:', pubkey.substring(0, 10) + '...');
-      
-      // Get following count (kind 3 contact list)
-      const followingEvents = await this.pool.querySync(RELAYS, {
-        kinds: [3],
-        authors: [pubkey],
-        limit: 1
+public async getUserStats(pubkey: string): Promise<{
+  following: number;
+  followers: number;
+  likes: number;
+}> {
+  console.log('📊 Fetching stats for user:', pubkey.substring(0, 10) + '...');
+  
+  // Get following count (kind 3 contact list)
+  const followingEvents = await this.pool.querySync(RELAYS, {
+    kinds: [3],
+    authors: [pubkey],
+    limit: 1
+  });
+  
+  let followingCount = 0;
+  if (followingEvents.length > 0) {
+    // Count p tags in contact list
+    followingCount = followingEvents[0].tags.filter(t => t[0] === 'p').length;
+  }
+  
+  // Get followers count
+  const followerEvents = await this.pool.querySync(RELAYS, {
+    kinds: [3],
+    '#p': [pubkey],
+    limit: 500 // Reduced for performance
+  });
+  
+  // Get total likes received on user's videos
+  const userVideos = await this.getUserVideos(pubkey);
+  const videoIds = userVideos.map(v => v.id);
+  
+  let totalLikes = 0;
+  if (videoIds.length > 0) {
+    // Query in batches to avoid too large queries
+    const batchSize = 20;
+    for (let i = 0; i < videoIds.length; i += batchSize) {
+      const batch = videoIds.slice(i, i + batchSize);
+      const likeEvents = await this.pool.querySync(RELAYS, {
+        kinds: [7],
+        '#e': batch,
+        limit: 500
       });
-      
-      let followingCount = 0;
-      if (followingEvents.length > 0) {
-        // Count p tags in contact list
-        followingCount = followingEvents[0].tags.filter(t => t[0] === 'p').length;
-      }
-      
-      // Get followers count
-      const followerEvents = await this.pool.querySync(RELAYS, {
-        kinds: [3],
-        '#p': [pubkey],
-        limit: 500 // Reduced for performance
-      });
-      
-      // Get total likes received on user's videos
-      const userVideos = await this.getUserVideos(pubkey);
-      const videoIds = userVideos.map(v => v.id);
-      
-      let totalLikes = 0;
-      if (videoIds.length > 0) {
-        // Query in batches to avoid too large queries
-        const batchSize = 20;
-        for (let i = 0; i < videoIds.length; i += batchSize) {
-          const batch = videoIds.slice(i, i + batchSize);
-          const likeEvents = await this.pool.querySync(RELAYS, {
-            kinds: [7],
-            '#e': batch,
-            limit: 500
-          });
-          totalLikes += likeEvents.length;
-        }
-      }
-      
-      const stats = {
-        following: followingCount,
-        followers: followerEvents.length,
-        likes: totalLikes
-      };
-      
-      console.log('📊 Stats:', stats);
-      return stats;
+      totalLikes += likeEvents.length;
     }
+  }
+  
+  const stats = {
+    following: followingCount,
+    followers: followerEvents.length,
+    likes: totalLikes
+  };
+  
+  console.log('📊 Stats:', stats);
+  return stats;
+}
 
     public async follow(pubkey: string): Promise<void> {
       console.log('➕ Following user:', pubkey.substring(0, 10) + '...');
