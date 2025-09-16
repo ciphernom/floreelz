@@ -184,6 +184,204 @@ public async likeVideo(video: VideoData) {
       hashtags: event.tags.filter((t: string[]) => t[0] === 't').map((t: string[]) => t[1]),
     };
   }
+  
+  private userVideosCache = new Map<string, VideoData[]>();
+
+    public async getUserVideos(pubkey: string): Promise<VideoData[]> {
+      // Check cache first
+      if (this.userVideosCache.has(pubkey)) {
+        return this.userVideosCache.get(pubkey)!;
+      }
+
+      console.log('📹 Fetching videos for user:', pubkey.substring(0, 10) + '...');
+      
+      const events = await this.pool.querySync(RELAYS, {
+        kinds: [VIDEO_KIND],
+        authors: [pubkey],
+        limit: 100
+      });
+      
+      const videos = events
+        .map(event => this.parseVideoEvent(event as VideoEvent))
+        .sort((a, b) => b.createdAt - a.createdAt);
+      
+      // Cache the results
+      this.userVideosCache.set(pubkey, videos);
+      
+      console.log(`✅ Found ${videos.length} videos for user`);
+      return videos;
+    }
+
+    public async getUserStats(pubkey: string): Promise<{
+      following: number;
+      followers: number;
+      likes: number;
+    }> {
+      console.log('📊 Fetching stats for user:', pubkey.substring(0, 10) + '...');
+      
+      // Get following count (kind 3 contact list)
+      const followingEvents = await this.pool.querySync(RELAYS, {
+        kinds: [3],
+        authors: [pubkey],
+        limit: 1
+      });
+      
+      let followingCount = 0;
+      if (followingEvents.length > 0) {
+        // Count p tags in contact list
+        followingCount = followingEvents[0].tags.filter(t => t[0] === 'p').length;
+      }
+      
+      // Get followers count
+      const followerEvents = await this.pool.querySync(RELAYS, {
+        kinds: [3],
+        '#p': [pubkey],
+        limit: 500 // Reduced for performance
+      });
+      
+      // Get total likes received on user's videos
+      const userVideos = await this.getUserVideos(pubkey);
+      const videoIds = userVideos.map(v => v.id);
+      
+      let totalLikes = 0;
+      if (videoIds.length > 0) {
+        // Query in batches to avoid too large queries
+        const batchSize = 20;
+        for (let i = 0; i < videoIds.length; i += batchSize) {
+          const batch = videoIds.slice(i, i + batchSize);
+          const likeEvents = await this.pool.querySync(RELAYS, {
+            kinds: [7],
+            '#e': batch,
+            limit: 500
+          });
+          totalLikes += likeEvents.length;
+        }
+      }
+      
+      const stats = {
+        following: followingCount,
+        followers: followerEvents.length,
+        likes: totalLikes
+      };
+      
+      console.log('📊 Stats:', stats);
+      return stats;
+    }
+
+    public async follow(pubkey: string): Promise<void> {
+      console.log('➕ Following user:', pubkey.substring(0, 10) + '...');
+      
+      // Get current following list
+      const events = await this.pool.querySync(RELAYS, {
+        kinds: [3],
+        authors: [this.publicKey],
+        limit: 1
+      });
+      
+      let tags: string[][] = [];
+      if (events.length > 0) {
+        tags = events[0].tags.filter(t => t[0] === 'p');
+      }
+      
+      // Add new follow if not already following
+      if (!tags.some(t => t[1] === pubkey)) {
+        tags.push(['p', pubkey]);
+      }
+      
+      const event: UnsignedEvent = {
+        kind: 3,
+        created_at: Math.floor(Date.now() / 1000),
+        pubkey: this.publicKey,
+        tags,
+        content: ''
+      };
+      
+      const signedEvent = finalizeEvent(event, this.secretKey);
+      await this.pool.publish(RELAYS, signedEvent);
+      
+      console.log('✅ Followed user');
+    }
+
+    public async unfollow(pubkey: string): Promise<void> {
+      console.log('➖ Unfollowing user:', pubkey.substring(0, 10) + '...');
+      
+      const events = await this.pool.querySync(RELAYS, {
+        kinds: [3],
+        authors: [this.publicKey],
+        limit: 1
+      });
+      
+      if (events.length === 0) return;
+      
+      // Remove from following list
+      const tags = events[0].tags.filter(t => !(t[0] === 'p' && t[1] === pubkey));
+      
+      const event: UnsignedEvent = {
+        kind: 3,
+        created_at: Math.floor(Date.now() / 1000),
+        pubkey: this.publicKey,
+        tags,
+        content: ''
+      };
+      
+      const signedEvent = finalizeEvent(event, this.secretKey);
+      await this.pool.publish(RELAYS, signedEvent);
+      
+      console.log('✅ Unfollowed user');
+    }
+
+    public async isFollowing(pubkey: string): Promise<boolean> {
+      const events = await this.pool.querySync(RELAYS, {
+        kinds: [3],
+        authors: [this.publicKey],
+        limit: 1
+      });
+      
+      if (events.length === 0) return false;
+      
+      return events[0].tags.some(t => t[0] === 'p' && t[1] === pubkey);
+    }
+
+    public async getLikedVideos(): Promise<VideoData[]> {
+      // Get all like events from this user
+      const likeEvents = await this.pool.querySync(RELAYS, {
+        kinds: [7],
+        authors: [this.publicKey],
+        limit: 100
+      });
+      
+      // Extract video event IDs
+      const videoIds = likeEvents
+        .map(e => e.tags.find(t => t[0] === 'e')?.[1])
+        .filter(Boolean) as string[];
+      
+      if (videoIds.length === 0) return [];
+      
+      // Fetch the actual video events
+      const videoEvents = await this.pool.querySync(RELAYS, {
+        kinds: [VIDEO_KIND],
+        ids: videoIds
+      });
+      
+      return videoEvents
+        .map(event => this.parseVideoEvent(event as VideoEvent))
+        .sort((a, b) => b.createdAt - a.createdAt);
+    }
+
+    // Add a method to get the secret key for export
+    public getSecretKey(): Uint8Array {
+      return this.secretKey;
+    }
+
+    // Method to clear video cache when needed
+    public clearVideoCache(pubkey?: string): void {
+      if (pubkey) {
+        this.userVideosCache.delete(pubkey);
+      } else {
+        this.userVideosCache.clear();
+      }
+    }
+    
 }
 
 export const nostrClient = new NostrClient();

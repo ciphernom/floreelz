@@ -1,7 +1,7 @@
 import { Event } from 'nostr-tools';
 
 // The kind for our specific video events
-export const VIDEO_KIND = 36234;
+export const VIDEO_KIND = 38234;
 
 // This is the structure of the video metadata we'll store in Nostr events
 export interface VideoData {

@@ -1,0 +1,385 @@
+.tiktok-profile-container {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: #000;
+  z-index: 1000;
+  overflow-y: auto;
+  animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+/* Header */
+.tiktok-profile-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  position: sticky;
+  top: 0;
+  background: #000;
+  z-index: 10;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.back-button, .more-button {
+  background: none;
+  border: none;
+  padding: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.header-username {
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
+  flex: 1;
+  text-align: center;
+}
+
+/* Profile Info */
+.tiktok-profile-info {
+  padding: 20px 16px;
+}
+
+.profile-avatar-section {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+.profile-avatar {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #333;
+}
+
+.avatar-edit-container {
+  position: relative;
+}
+
+.avatar-url-input {
+  position: absolute;
+  bottom: -30px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 200px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid #333;
+  color: white;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.profile-display-name {
+  color: #fff;
+  font-size: 18px;
+  font-weight: 600;
+  text-align: center;
+  margin: 8px 0 4px;
+}
+
+.profile-username {
+  color: #8a8a8a;
+  font-size: 14px;
+  text-align: center;
+  margin: 0 0 16px;
+}
+
+/* Stats */
+.profile-stats {
+  display: flex;
+  justify-content: center;
+  gap: 32px;
+  margin: 20px 0;
+}
+
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.stat-number {
+  color: #fff;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.stat-label {
+  color: #8a8a8a;
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+/* Action Buttons */
+.profile-actions {
+  margin: 20px 0;
+}
+
+.edit-profile-button {
+  width: 100%;
+  padding: 10px;
+  background: transparent;
+  border: 1px solid #333;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.edit-profile-button:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.follow-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.follow-button {
+  flex: 1;
+  padding: 10px;
+  background: #fe2c55;
+  border: none;
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.follow-button.following {
+  background: transparent;
+  border: 1px solid #333;
+}
+
+.message-button {
+  width: 44px;
+  height: 44px;
+  background: transparent;
+  border: 1px solid #333;
+  color: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.edit-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.cancel-button, .save-button {
+  flex: 1;
+  padding: 10px;
+  border-radius: 4px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: opacity 0.2s;
+}
+
+.cancel-button {
+  background: transparent;
+  border: 1px solid #333;
+  color: #fff;
+}
+
+.save-button {
+  background: #fe2c55;
+  color: #fff;
+}
+
+.save-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Bio */
+.profile-bio {
+  color: #fff;
+  font-size: 14px;
+  text-align: center;
+  margin: 16px 0 0;
+  line-height: 1.4;
+}
+
+/* Edit Form */
+.edit-form {
+  margin: 16px 0;
+}
+
+.edit-name, .edit-bio {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid #333;
+  color: #fff;
+  padding: 10px;
+  border-radius: 4px;
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+
+.edit-name {
+  text-align: center;
+  font-weight: 600;
+}
+
+.edit-bio {
+  resize: none;
+  min-height: 60px;
+  line-height: 1.4;
+}
+
+/* Tabs */
+.profile-tabs {
+  display: flex;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  position: sticky;
+  top: 65px;
+  background: #000;
+  z-index: 9;
+}
+
+.tab-button {
+  flex: 1;
+  padding: 16px;
+  background: transparent;
+  border: none;
+  color: #8a8a8a;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  transition: color 0.2s;
+}
+
+.tab-button.active {
+  color: #fff;
+}
+
+.tab-button.active::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: #fff;
+}
+
+/* Video Grid */
+.video-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2px;
+  padding: 2px;
+  min-height: 400px;
+}
+
+.video-thumbnail {
+  aspect-ratio: 9/16;
+  background: #161616;
+  position: relative;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.thumbnail-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(45deg, #1a1a1a 25%, #222 50%, #1a1a1a 75%);
+  background-size: 400% 400%;
+  animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.video-stats {
+  position: absolute;
+  bottom: 4px;
+  left: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+
+.empty-state {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  color: #8a8a8a;
+  text-align: center;
+}
+
+.empty-state p {
+  margin-top: 16px;
+  font-size: 14px;
+}
+
+/* Loading */
+.tiktok-profile-loading {
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.loading-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid rgba(255, 255, 255, 0.1);
+  border-radius: 50%;
+  border-top-color: #fe2c55;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Mobile responsiveness */
+@media (max-width: 600px) {
+  .tiktok-profile-container {
+    -webkit-overflow-scrolling: touch;
+  }
+}

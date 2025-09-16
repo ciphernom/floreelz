@@ -5,40 +5,49 @@ import 'swiper/css';
 import 'swiper/css/virtual';
 
 import { nostrClient } from '../core/nostr';
+import { getProfileManager } from '../core/profiles';
 import { nip19 } from 'nostr-tools';
 import { VideoData } from '../types';
 import VideoPlayer from './VideoPlayer';
 import InteractionBar from './InteractionBar';
+import ProfileView from './ProfileView';
 
 function VideoFeed() {
   const [videos, setVideos] = useState<VideoData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [selectedProfilePubkey, setSelectedProfilePubkey] = useState<string | null>(null);
+  const [authorNames, setAuthorNames] = useState<Map<string, string>>(new Map());
 
   useEffect(() => {
-    // A set to keep track of received event IDs to prevent duplicates.
     const receivedIds = new Set<string>();
+    const profileManager = getProfileManager();
 
-    nostrClient.subscribeToVideos((video) => {
-      // If we've already processed this video ID, ignore it.
+    nostrClient.subscribeToVideos(async (video) => {
       if (receivedIds.has(video.id)) return;
-
       receivedIds.add(video.id);
 
       setVideos((prevVideos) => {
-        // Add the new video to the array and re-sort by creation date.
         const updatedVideos = [video, ...prevVideos];
         return updatedVideos.sort((a, b) => b.createdAt - a.createdAt);
       });
 
-      // Turn off the loading spinner once we have at least one video.
+      // Load author profile in the background
+      try {
+        const profile = await profileManager.getProfile(video.author);
+        if (profile && profile.name) {
+          setAuthorNames((prev) => new Map(prev).set(video.author, profile.name!));
+        }
+      } catch (error) {
+        console.error('Failed to load author profile:', error);
+      }
+
       setIsLoading(false);
     });
 
-    // The cleanup function unsubscribes when the component unmounts.
     return () => {
       nostrClient.unsubscribeFromVideos();
     };
-  }, []); // The empty dependency array ensures this runs only on mount/unmount.
+  }, []);
 
   if (isLoading) {
     return <div className="loading-spinner"></div>;
@@ -54,39 +63,53 @@ function VideoFeed() {
   }
 
   return (
-    <Swiper
-      direction={'vertical'}
-      className="swiper-container"
-      modules={[Mousewheel, Virtual]}
-      mousewheel
-      virtual
-    >
-      {videos.map((video, index) => {
-        // Convert the hex public key to a user-friendly npub identifier.
-        const npub = nip19.npubEncode(video.author);
-        // Create a truncated version for clean display.
-        const displayName = `${npub.slice(0, 12)}...${npub.slice(-4)}`;
+    <>
+      <Swiper
+        direction={'vertical'}
+        className="swiper-container"
+        modules={[Mousewheel, Virtual]}
+        mousewheel
+        virtual
+      >
+        {videos.map((video, index) => {
+          const npub = nip19.npubEncode(video.author);
+          const authorName = authorNames.get(video.author);
+          const displayName = authorName || `${npub.slice(0, 12)}...${npub.slice(-4)}`;
 
-        return (
-          <SwiperSlide key={video.id} virtualIndex={index} className="slide">
-            {({ isActive }) => (
-              <>
-                <VideoPlayer
-                  magnetURI={video.magnetURI}
-                  isActive={isActive}
-                />
-                <div className="overlay-info">
-                  <h3>{video.title}</h3>
-                  <p>{video.summary}</p>
-                  <p className="author">By: {displayName}</p>
-                </div>
-                <InteractionBar video={video} />
-              </>
-            )}
-          </SwiperSlide>
-        );
-      })}
-    </Swiper>
+          return (
+            <SwiperSlide key={video.id} virtualIndex={index} className="slide">
+              {({ isActive }) => (
+                <>
+                  <VideoPlayer
+                    magnetURI={video.magnetURI}
+                    isActive={isActive}
+                  />
+                  <div className="overlay-info">
+                    <h3>{video.title}</h3>
+                    <p>{video.summary}</p>
+                    <p 
+                      className="author"
+                      onClick={() => setSelectedProfilePubkey(video.author)}
+                      style={{ cursor: 'pointer', textDecoration: 'underline' }}
+                    >
+                      By: {displayName}
+                    </p>
+                  </div>
+                  <InteractionBar video={video} />
+                </>
+              )}
+            </SwiperSlide>
+          );
+        })}
+      </Swiper>
+
+      {selectedProfilePubkey && (
+        <ProfileView
+          pubkey={selectedProfilePubkey}
+          onClose={() => setSelectedProfilePubkey(null)}
+        />
+      )}
+    </>
   );
 }
 

@@ -273,7 +273,7 @@ class WebTorrentClient {
           };
           torrent.on('metadata', onMetadata);
           setTimeout(() => {
-            torrent.off('metadata', onMetadata);
+            torrent.removeListener('metadata', onMetadata);
             const fallbackErr = new Error('Metadata timeout');
             console.error(fallbackErr);
             reject(fallbackErr);
