@@ -193,3 +193,14 @@ body {
   0% { transform: translate(-50%, -50%) rotate(0deg); }
   100% { transform: translate(-50%, -50%) rotate(360deg); }
 }
+.interaction-bar button {
+  transition: transform 0.2s ease, color 0.2s ease;
+}
+
+.interaction-bar button:active {
+  transform: scale(1.2);
+}
+
+.interaction-bar button:first-child {
+  font-size: 24px;
+}

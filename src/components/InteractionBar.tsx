@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { nostrClient } from '../core/nostr';
 import { VideoData } from '../types';
 import { toast } from 'react-hot-toast';
@@ -7,14 +8,27 @@ interface Props {
 }
 
 function InteractionBar({ video }: Props) {
-  const handleLike = () => {
-    nostrClient.likeVideo(video);
-    toast('❤️ Liked!');
+  const [isLiked, setIsLiked] = useState(nostrClient.likedVideos.has(video.id));
+
+  const handleLike = async () => {
+    const newLikedState = await nostrClient.likeVideo(video);
+    setIsLiked(newLikedState);
+    
+    if (newLikedState) {
+      toast('❤️ Liked!');
+    } else {
+      toast('💔 Unliked');
+    }
   };
 
   return (
     <div className="interaction-bar">
-      <button onClick={handleLike}>❤️</button>
+      <button 
+        onClick={handleLike}
+        style={{ color: isLiked ? 'red' : 'white' }}
+      >
+        ❤️
+      </button>
       <button>💬</button>
       <button>🔗</button>
     </div>

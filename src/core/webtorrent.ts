@@ -15,7 +15,9 @@ class WebTorrentClient {
   private torrents: Map<string, Torrent> = new Map();
   private seedingTorrents: Map<string, Torrent> = new Map();
   private blobUrls: Map<string, string> = new Map(); // Track blob URLs for cleanup
-
+  private blobSizes: Map<string, number> = new Map(); // Track blob sizes
+  private totalBlobSize: number = 0; // Track total cache size
+  
   constructor() {
     this.client = new WebTorrent();
     
@@ -109,9 +111,18 @@ class WebTorrentClient {
 
     const cachedTorrent = this.torrents.get(magnetURI);
     if (cachedTorrent) {
-      console.log('♻️ Using cached torrent');
-      await this.attachToElement(cachedTorrent, element);
-      return;
+      // Check if we still have the blob URL
+      if (this.blobUrls.has(magnetURI)) {
+        console.log('♻️ Using cached torrent with blob');
+        const blobUrl = this.blobUrls.get(magnetURI)!;
+        element.src = blobUrl;
+        element.play().catch(e => console.log('Autoplay blocked:', e));
+        return;
+      } else {
+        console.log('📥 Re-downloading blob for cached torrent');
+        await this.attachToElement(cachedTorrent, element);
+        return;
+      }
     }
 
     console.log('🆕 Adding new torrent to client...');
@@ -186,27 +197,45 @@ class WebTorrentClient {
           element.src = '';
           element.load();
           
-          try {
-            const stream = file.createReadStream();
-            const chunks: Uint8Array[] = [];
-            stream.on('data', (chunk) => chunks.push(chunk));
-            stream.on('end', () => {
-              const blob = new Blob(chunks, { type: 'video/mp4' });
-              const url = URL.createObjectURL(blob);
-              this.blobUrls.set(torrent.magnetURI, url); // Track for cleanup
-              element.src = url;
-              console.log('✅ Video src set');
-              element.play().catch(e => console.log('Autoplay blocked:', e));
-              resolve();
-            });
-            stream.on('error', (err) => {
-              console.error('❌ Error reading stream:', err);
+            try {
+              const stream = file.createReadStream();
+              const chunks: Uint8Array[] = [];
+              stream.on('data', (chunk) => chunks.push(chunk));
+              stream.on('end', () => {
+                const blob = new Blob(chunks, { type: 'video/mp4' });
+                const url = URL.createObjectURL(blob);
+                this.blobUrls.set(torrent.magnetURI, url);
+                this.blobSizes.set(torrent.magnetURI, blob.size);
+                this.totalBlobSize += blob.size;
+                console.log(`💾 Cache size: ${(this.totalBlobSize / 1024 / 1024).toFixed(2)} MB`);
+
+                // Clean up old blobs if we're over 1GB
+                this.enforceMemoryLimit();
+                
+                // Ensure element is ready before setting source
+                element.pause();
+                element.src = url;
+                
+                // Wait for loadeddata before attempting play
+                element.addEventListener('loadeddata', () => {
+                  element.play().catch(e => {
+                    if (e.name !== 'AbortError') {
+                      console.log('Playback prevented:', e);
+                    }
+                  });
+                }, { once: true });
+                
+                console.log('✅ Video src set');
+                resolve();
+              });
+              stream.on('error', (err) => {
+                console.error('❌ Error reading stream:', err);
+                reject(err);
+              });
+            } catch (err) {
+              console.error('❌ Error creating stream:', err);
               reject(err);
-            });
-          } catch (err) {
-            console.error('❌ Error creating stream:', err);
-            reject(err);
-          }
+            }
         } else {
           const noFileErr = new Error('No video file found in torrent!');
           console.error(noFileErr);
@@ -274,39 +303,51 @@ class WebTorrentClient {
     });
   }
 
-  public remove(magnetURI: string) {
-    if (this.seedingTorrents.has(magnetURI)) {
-      console.log('⚠️ KEEPING SEEDER ALIVE - not removing');
-      return;
-    }
-    
-    const infoHash = magnetURI.match(/btih:([a-f0-9]{40})/i)?.[1];
-    if (infoHash) {
-      for (const [_uri, torrent] of this.seedingTorrents) {
-        if (torrent.infoHash?.toLowerCase() === infoHash.toLowerCase()) {
-          console.log('⚠️ KEEPING SEEDER ALIVE (matched by hash) - not removing');
-          return;
-        }
-      }
-    }
-    
-    console.log('🗑️ Removing torrent (not a seeder)');
-    
-    const torrent = this.torrents.get(magnetURI) || 
-                   this.client.torrents.find(t => t.magnetURI === magnetURI);
-    
-    if (torrent && !this.seedingTorrents.has(magnetURI)) {
-      this.client.remove(torrent);
-      this.torrents.delete(magnetURI);
-      const blobUrl = this.blobUrls.get(magnetURI);
-      if (blobUrl) {
-        URL.revokeObjectURL(blobUrl);
-        this.blobUrls.delete(magnetURI);
-        console.log('🧹 Revoked blob URL');
-      }
-      console.log('✅ Torrent removed');
-    }
+public remove(magnetURI: string) {
+  // NEVER remove torrents - we seed everything we see
+  console.log('🌱 Keeping torrent for seeding:', magnetURI.substring(0, 30) + '...');
+  
+  // Mark as seeding so it never gets removed
+  const torrent = this.torrents.get(magnetURI) || 
+                 this.client.torrents.find(t => t.magnetURI === magnetURI);
+  if (torrent) {
+    this.seedingTorrents.set(magnetURI, torrent);
   }
+  
+  return; // Don't remove anything
+}
+  
+  private enforceMemoryLimit() {
+      const MAX_CACHE_SIZE = 1024 * 1024 * 1024; // 1GB
+      
+      if (this.totalBlobSize > MAX_CACHE_SIZE) {
+        console.log('⚠️ Cache limit exceeded, cleaning old blobs...');
+        
+        // Get oldest blob URLs (first entries in the map)
+        const entries = Array.from(this.blobUrls.entries());
+        
+        for (const [magnetURI, blobUrl] of entries) {
+          if (this.totalBlobSize <= MAX_CACHE_SIZE) break;
+          
+          // Don't remove the blob we just added
+          if (entries[entries.length - 1][0] === magnetURI) continue;
+          
+          // Revoke blob URL but keep torrent for seeding
+          URL.revokeObjectURL(blobUrl);
+          const size = this.blobSizes.get(magnetURI) || 0;
+          this.totalBlobSize -= size;
+          
+          this.blobUrls.delete(magnetURI);
+          this.blobSizes.delete(magnetURI);
+          
+          console.log(`🧹 Cleared blob for ${magnetURI.substring(0, 30)}... (freed ${(size / 1024 / 1024).toFixed(2)} MB)`);
+        }
+        
+        console.log(`💾 Cache size after cleanup: ${(this.totalBlobSize / 1024 / 1024).toFixed(2)} MB`);
+      }
+    }
+  
+  
 }
 
 export const webTorrentClient = new WebTorrentClient();

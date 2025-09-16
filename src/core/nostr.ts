@@ -23,6 +23,7 @@ class NostrClient {
   private secretKey: Uint8Array;
   public publicKey: string;
   private videoSub: ReturnType<typeof this.pool.subscribeMany> | null = null;
+  public likedVideos: Set<string> = new Set(); // Track liked video IDs
 
   constructor() {
     console.log('🔐 Initializing Nostr client...');
@@ -130,8 +131,17 @@ class NostrClient {
     return signedEvent;
   }
 
-  public async likeVideo(video: VideoData) {
+public async likeVideo(video: VideoData) {
+  const isLiked = this.likedVideos.has(video.id);
+  
+  if (isLiked) {
+    // Unlike - remove from set
+    console.log('💔 Unliking video:', video.title);
+    this.likedVideos.delete(video.id);
+  } else {
+    // Like - add to set and publish event
     console.log('❤️ Liking video:', video.title);
+    this.likedVideos.add(video.id);
     
     let event: UnsignedEvent = {
       kind: 7,
@@ -152,6 +162,9 @@ class NostrClient {
     
     console.log('✅ Like published:', results);
   }
+  
+  return !isLiked; // Return new liked state
+}
 
   private parseVideoEvent(event: VideoEvent): VideoData {
     console.log('🔍 Parsing video event...');
