@@ -147,52 +147,72 @@ class NostrClient {
     console.log('✅ Report published');
   }
 
-  public subscribeToVideos(onVideo: (video: VideoData) => void) {
-   // Phase 3: Enhanced subscription for personalized discovery
-   // First, get followed users for social feed
-   this.getFollowedPubkeys().then(followed => {
-     const filters = [{ kinds: [VIDEO_KIND], authors: followed, limit: 50 }];
-     // Add filter for videos liked by followed users
-     if (followed.length > 0) {
-       filters.push({ kinds: [7], authors: followed, limit: 100 }); // Likes by followed
-     }
-     this.videoSub = this.pool.subscribeMany(RELAYS, filters, {
-       onevent: async (event) => {
-         // Handle video events and like events to fetch liked videos
-         if (event.kind === VIDEO_KIND) {
-          const videoData = this.parseVideoEvent(event as VideoEvent);
-          const uploaderRep = this.reputationManager.getReputationScore(event.pubkey);
-            if (!this.moderationSystem.shouldHideVideo(uploaderRep)) {
-              onVideo(videoData); // Deduplication is correctly handled in the VideoFeed component
+// src/core/nostr.ts
+
+public subscribeToVideos(onVideo: (video: VideoData) => void) {
+    this.getFollowedPubkeys().then(async (followed) => {
+        await this.ensureInitialized(); // Ensure publicKey is available
+
+        // Create a Set of authors to automatically handle duplicates
+        const authorsToWatch = new Set(followed);
+        if (this.publicKey) {
+            authorsToWatch.add(this.publicKey); // <<< FIX: Always add yourself
+        }
+
+        const finalAuthors = Array.from(authorsToWatch);
+
+        const filters = [];
+
+        // Filter for videos from yourself and people you follow
+        if (finalAuthors.length > 0) {
+            filters.push({ kinds: [VIDEO_KIND], authors: finalAuthors, limit: 50 });
+        }
+
+        // Filter for videos liked by people you follow
+        if (followed.length > 0) {
+            filters.push({ kinds: [7], authors: followed, limit: 100 });
+        }
+        
+        // If there are no authors to watch (e.g., new user before key is known), fall back to global
+        if (filters.length === 0) {
+            filters.push({ kinds: [VIDEO_KIND], limit: 20 });
+        }
+        
+        this.videoSub = this.pool.subscribeMany(RELAYS, filters, {
+            onevent: async (event) => {
+                if (event.kind === VIDEO_KIND) {
+                    const videoData = this.parseVideoEvent(event as VideoEvent);
+                    const uploaderRep = this.reputationManager.getReputationScore(event.pubkey);
+                    if (!this.moderationSystem.shouldHideVideo(uploaderRep)) {
+                        onVideo(videoData);
+                    }
+                } else if (event.kind === 7) {
+                    const videoId = event.tags.find(t => t[0] === 'e')?.[1];
+                    if (videoId) {
+                        const videoEvent = await this.pool.querySync(RELAYS, { ids: [videoId], kinds: [VIDEO_KIND] });
+                        if (videoEvent.length > 0) {
+                            const videoData = this.parseVideoEvent(videoEvent[0] as VideoEvent);
+                            onVideo(videoData);
+                        }
+                    }
+                }
+            },
+            oneose: () => console.log('✅ Personalized feed loaded')
+        });
+    }).catch(err => {
+        console.error('Failed to load followed for personalized feed:', err);
+        // Fallback to global feed
+        this.videoSub = this.pool.subscribeMany(RELAYS, [{ kinds: [VIDEO_KIND], limit: 20 }], {
+            onevent: (event) => {
+                const videoData = this.parseVideoEvent(event as VideoEvent);
+                const uploaderRep = this.reputationManager.getReputationScore(event.pubkey);
+                if (!this.moderationSystem.shouldHideVideo(uploaderRep)) {
+                    onVideo(videoData);
+                }
             }
-         } else if (event.kind === 7) {
-           // Fetch the liked video and add to feed if not already present
-           const videoId = event.tags.find(t => t[0] === 'e')?.[1];
-           if (videoId) {
-             const videoEvent = await this.pool.querySync(RELAYS, { ids: [videoId], kinds: [VIDEO_KIND] });
-             if (videoEvent.length > 0) {
-               const videoData = this.parseVideoEvent(videoEvent[0] as VideoEvent);
-               onVideo(videoData); // Will dedupe in caller
-             }
-           }
-         }
-       },
-       oneose: () => console.log('✅ Personalized feed loaded')
-     });
-   }).catch(err => {
-     console.error('Failed to load followed for personalized feed:', err);
-     // Fallback to global feed
-     this.videoSub = this.pool.subscribeMany(RELAYS, [{ kinds: [VIDEO_KIND], limit: 20 }], {
-       onevent: (event) => {
-         const videoData = this.parseVideoEvent(event as VideoEvent);
-         const uploaderRep = this.reputationManager.getReputationScore(event.pubkey);
-         if (!this.moderationSystem.shouldHideVideo(uploaderRep)) {
-           onVideo(videoData);
-         }
-       }
-     });
-   });
- }
+        });
+    });
+}
 
  private async getFollowedPubkeys(): Promise<string[]> {
    await this.ensureInitialized();
@@ -213,53 +233,41 @@ class NostrClient {
     }
   }
 
-  public async publishVideo(magnetURI: string, title: string, summary: string, hash: string, thumbnail?: string, cid?: string) {
-
+public async publishVideo(magnetURI: string, title: string, summary: string, hash: string, thumbnail?: string, cid?: string) {
     await this.ensureInitialized();
-    
     console.log('📤 Publishing video to Nostr:', {
-      title,
-      summary,
-      magnetURI: magnetURI.substring(0, 50) + '...',
-      hash: hash.substring(0, 16) + '...', 
-      cid 
+        title,
+        summary,
+        magnetURI: magnetURI.substring(0, 50) + '...',
+        hash: hash.substring(0, 16) + '...', 
+        cid 
     });
 
     const event: UnsignedEvent = {
-      kind: VIDEO_KIND,
-      created_at: Math.floor(Date.now() / 1000),
-      pubkey: this.publicKey!,
-      tags: [
-        ['d', title],
-        ['magnet', magnetURI],
-        ['title', title],
-        ['summary', summary],
-        ['hash', hash],
-        ...(thumbnail ? [['thumbnail', thumbnail]] : []),
-        ...(cid ? [['cid', cid]] : []), // Phase 3: Add CID tag for IPFS fallback
-      ],
-      content: `${title} - ${summary}`,
+        kind: VIDEO_KIND,
+        created_at: Math.floor(Date.now() / 1000),
+        pubkey: this.publicKey!,
+        tags: [
+            ['d', title],
+            ['magnet', magnetURI],
+            ['title', title],
+            ['summary', summary],
+            ['hash', hash],
+            ...(thumbnail ? [['thumbnail', thumbnail]] : []),
+            ...(cid ? [['cid', cid]] : []),
+        ],
+        content: `${title} - ${summary}`,
     };
-    
-    const toastId = toast.loading(`Mining Proof of Work (difficulty ${POW_DIFFICULTY})...`);
+
     console.time('⛏️ PoW Mining');
-    
     const minedEvent = minePow(event, POW_DIFFICULTY);
     console.timeEnd('⛏️ PoW Mining');
-    
-    toast.dismiss(toastId);
-    toast.loading('Signing and publishing...');
 
     const signedEvent = await this.signEvent(minedEvent);
-    
     await this.pool.publish(RELAYS, signedEvent);
-    
-    toast.success('Published!');
-    
     console.log('✅ Published video event:', signedEvent);
-    
     return signedEvent;
-  }
+}
 
   public async likeVideo(video: VideoData) {
     await this.ensureInitialized();

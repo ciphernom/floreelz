@@ -22,44 +22,54 @@ function VideoPlayer({ magnetURI, hash, cid, isActive }: Props) {
     
     if (isActive && videoElement && magnetURI && mounted) {
       if (currentMagnetRef.current !== magnetURI) {
-        // Reset state for new video
         setError(null); 
         videoElement.src = '';
         currentMagnetRef.current = magnetURI;
 
-       // Phase 3: Try WebTorrent first, fallback to IPFS after timeout
-       const tryStream = async () => {
-         try {
-           await Promise.race([
-             webTorrentClient.stream(magnetURI, videoElement, hash),
-             new Promise((_, reject) => 
-               setTimeout(() => reject(new Error('No WebTorrent peers')), 10000) // 10s timeout
-             )
-           ]);
-         } catch (err: any) {
-           if (err.message === 'No WebTorrent peers' && cid) {
-             console.log('🔄 Falling back to IPFS');
-             const ipfsUrl = await ipfsClient.getFileUrl(cid);
-             videoElement.src = ipfsUrl;
-             videoElement.load();
-           } else {
-             throw err;
-           }
-         }
-       };
-       
-       tryStream().catch((err) => {
-         if (mounted) {
-           setError(err.message || 'Failed to load video');
-         }
-       });
+        const tryStream = async () => {
+            try {
+                await Promise.race([
+                    webTorrentClient.stream(magnetURI, videoElement, hash),
+                    new Promise((_, reject) => 
+                        setTimeout(() => reject(new Error('No WebTorrent peers found in time')), 10000) // 10s timeout
+                    )
+                ]);
+            } catch (err: any) {
+                if (err.message.includes('No WebTorrent peers') && cid) {
+                    console.log('🔄 Falling back to IPFS');
+                    try {
+                        const ipfsUrl = await ipfsClient.getFileUrl(cid);
+                        videoElement.src = ipfsUrl;
+                        videoElement.load();
+                    } catch (ipfsErr: any) {
+                        // Throw the IPFS error if fallback also fails
+                        throw ipfsErr;
+                    }
+                } else {
+                    throw err;
+                }
+            }
+        };
 
-        
-        videoElement.addEventListener('error', () => {
-          if (mounted) {
-            setError('Video playback error');
-          }
+        tryStream().catch((err: any) => {
+            if (mounted) {
+                // FIX 1: Always use err.message
+                setError(err.message || 'Failed to load video');
+            }
         });
+
+        const handleError = (e: any) => {
+          if (mounted) {
+            // FIX 2: Be specific with video element errors
+            setError('Video playback error: ' + (e?.target?.error?.message || 'Unknown error'));
+          }
+        };
+
+        videoElement.addEventListener('error', handleError);
+
+        return () => {
+            videoElement.removeEventListener('error', handleError);
+        };
       }
     } else if (videoElement && mounted) {
       videoElement.pause();
@@ -68,7 +78,7 @@ function VideoPlayer({ magnetURI, hash, cid, isActive }: Props) {
     return () => {
       mounted = false;
     };
-  }, [isActive, magnetURI, hash]);
+  }, [isActive, magnetURI, hash, cid]);
 
   useEffect(() => {
     if (videoRef.current) {
@@ -86,11 +96,8 @@ function VideoPlayer({ magnetURI, hash, cid, isActive }: Props) {
     setError(null);
     if (videoRef.current) {
       videoRef.current.src = '';
-      videoRef.current.load();
-    }
-    // Re-trigger load if needed
-    if (currentMagnetRef.current === magnetURI && isActive) {
-      webTorrentClient.stream(magnetURI, videoRef.current!, hash).catch(setError);
+      currentMagnetRef.current = ''; // Force re-initialization
+      // The main useEffect will now re-trigger the stream on the next render cycle
     }
   };
 
@@ -98,7 +105,7 @@ function VideoPlayer({ magnetURI, hash, cid, isActive }: Props) {
     return (
       <div className="video-player error-container">
         <div className="error-overlay">
-          <p>{error}</p>
+          <p>{error}</p> {/* This will now correctly render a string */}
           <button onClick={handleRetry}>Retry</button>
         </div>
       </div>
@@ -112,11 +119,11 @@ function VideoPlayer({ magnetURI, hash, cid, isActive }: Props) {
         loop
         playsInline
         autoPlay={isActive}
-        controls={false} // Use custom controls
+        controls={false}
         onClick={toggleMute}
-       // Phase 3: Ensure SW caches video fetches
-       crossOrigin="anonymous"
+        crossOrigin="anonymous"
       />
+    
       {isActive && (
         <button className="mute-btn" onClick={toggleMute} aria-label="Toggle Mute">
           {isMuted ? '🔇' : '🔊'}
