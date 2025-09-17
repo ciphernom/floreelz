@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { nostrClient } from '../core/nostr';
 import { webTorrentClient } from '../core/webtorrent';
+import { ipfsClient } from '../core/ipfs';
 import { toast } from 'react-hot-toast';
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB limit
@@ -63,7 +64,10 @@ function UploadModal({ isOpen, onClose }: Props) {
 
     try {
       const magnetURI = await webTorrentClient.seed(file);
+      toast.loading('Uploading to IPFS for persistence...', { id: toastId });
+      const cid = await ipfsClient.uploadFile(file);
       console.log('✅ Seeding complete! Magnet URI:', magnetURI);
+      console.log('✅ IPFS upload complete! CID:', cid);
 
       const [hash, thumbnail] = await Promise.all([
         computeHash(file),
@@ -71,7 +75,8 @@ function UploadModal({ isOpen, onClose }: Props) {
       ]);
       console.log('🔐 Computed hash:', hash);
 
-      const event = await nostrClient.publishVideo(magnetURI, title, summary, hash, thumbnail);
+      toast.loading('Publishing to Nostr...', { id: toastId });
+      const event = await nostrClient.publishVideo(magnetURI, title, summary, hash, thumbnail, cid);
       console.log('✅ Published to Nostr! Event ID:', event.id);
 
       toast.success('Upload complete!', { id: toastId });

@@ -27,8 +27,9 @@ function VideoFeed() {
       receivedIds.add(video.id);
 
       setVideos((prevVideos) => {
-        const updatedVideos = [video, ...prevVideos];
-        return updatedVideos.sort((a, b) => b.createdAt - a.createdAt);
+       // Phase 3: Sort by recency, limit to 50 for performance
+       const updated = [video, ...prevVideos].sort((a, b) => b.createdAt - a.createdAt).slice(0, 50);
+       return updated;
       });
 
       try {
@@ -82,6 +83,7 @@ function VideoFeed() {
                   <VideoPlayer
                     magnetURI={video.magnetURI}
                     hash={video.hash}
+                    cid={video.cid} // Phase 3: Pass CID for fallback
                     isActive={isActive}
                   />
                   <div className="overlay-info">

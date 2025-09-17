@@ -11,6 +11,7 @@ export interface VideoData {
   summary: string;
   thumbnail?: string;
   hash?: string;
+  cid?: string; // Phase 3: IPFS CID for persistence fallback
   hashtags: string[];
 }
 

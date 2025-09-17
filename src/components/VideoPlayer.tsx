@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import { webTorrentClient } from '../core/webtorrent';
+import { ipfsClient } from '../core/ipfs'; // Phase 3: For IPFS fallback
 import './VideoPlayer.css';
 
 interface Props {
   magnetURI: string;
   hash?: string;
+  cid?: string; // Phase 3: Add prop for fallback
   isActive: boolean;
 }
 
-function VideoPlayer({ magnetURI, hash, isActive }: Props) {
+function VideoPlayer({ magnetURI, hash, cid, isActive }: Props) {
   const [isMuted, setIsMuted] = useState(() => localStorage.getItem('videoMuted') === 'true');
   const videoRef = useRef<HTMLVideoElement>(null);
   const [error, setError] = useState<string | null>(null);
@@ -24,13 +26,34 @@ function VideoPlayer({ magnetURI, hash, isActive }: Props) {
         setError(null); 
         videoElement.src = '';
         currentMagnetRef.current = magnetURI;
-        
-        webTorrentClient.stream(magnetURI, videoElement, hash)
-          .catch((err) => {
-            if (mounted) {
-              setError(err.message || 'Failed to load video');
-            }
-          });
+
+       // Phase 3: Try WebTorrent first, fallback to IPFS after timeout
+       const tryStream = async () => {
+         try {
+           await Promise.race([
+             webTorrentClient.stream(magnetURI, videoElement, hash),
+             new Promise((_, reject) => 
+               setTimeout(() => reject(new Error('No WebTorrent peers')), 10000) // 10s timeout
+             )
+           ]);
+         } catch (err: any) {
+           if (err.message === 'No WebTorrent peers' && cid) {
+             console.log('🔄 Falling back to IPFS');
+             const ipfsUrl = await ipfsClient.getFileUrl(cid);
+             videoElement.src = ipfsUrl;
+             videoElement.load();
+           } else {
+             throw err;
+           }
+         }
+       };
+       
+       tryStream().catch((err) => {
+         if (mounted) {
+           setError(err.message || 'Failed to load video');
+         }
+       });
+
         
         videoElement.addEventListener('error', () => {
           if (mounted) {
@@ -91,6 +114,8 @@ function VideoPlayer({ magnetURI, hash, isActive }: Props) {
         autoPlay={isActive}
         controls={false} // Use custom controls
         onClick={toggleMute}
+       // Phase 3: Ensure SW caches video fetches
+       crossOrigin="anonymous"
       />
       {isActive && (
         <button className="mute-btn" onClick={toggleMute} aria-label="Toggle Mute">
