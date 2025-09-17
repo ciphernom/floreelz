@@ -3,6 +3,7 @@ import { getProfileManager, UserProfile } from '../core/profiles';
 import { nostrClient } from '../core/nostr';
 import { nip19 } from 'nostr-tools';
 import { toast } from 'react-hot-toast';
+import { ProfileSkeleton } from './SkeletonLoader';
 import { VideoData } from '../types';
 import './ProfileView.css';
 
@@ -26,18 +27,23 @@ function ProfileView({ pubkey, onClose, onVideoSelect }: Props) {
   const targetPubkey = pubkey || nostrClient.publicKey;
   
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [profileError, setProfileError] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<TabType>('videos');
   const [userVideos, setUserVideos] = useState<VideoData[]>([]);
+  const [videosError, setVideosError] = useState<string | null>(null);
   const [likedVideos, setLikedVideos] = useState<VideoData[]>([]);
+  const [likedError, setLikedError] = useState<string | null>(null);
+  const [canZap, setCanZap] = useState(false);
   const [stats, setStats] = useState<ProfileStats>({
     following: 0,
     followers: 0,
     likes: 0
   });
   const [isFollowing, setIsFollowing] = useState(false);
+  const [followError, setFollowError] = useState<string | null>(null);
   const [showKeyExport, setShowKeyExport] = useState(false);
   
   const [editForm, setEditForm] = useState({
@@ -47,13 +53,39 @@ function ProfileView({ pubkey, onClose, onVideoSelect }: Props) {
   });
 
   useEffect(() => {
-    loadProfile();
-    loadUserVideos();
-    loadStats();
-    if (!isOwnProfile) {
-      checkFollowStatus();
-    }
-  }, [targetPubkey]);
+    const init = async () => {
+      setIsLoading(true);
+      setProfileError(null);
+      setVideosError(null);
+      setFollowError(null);
+
+      if (!targetPubkey) {
+        setIsLoading(false);
+        return;
+      }
+
+      try {
+        const promises = [
+          loadProfile(),
+          loadUserVideos(),
+          loadStats(),
+        ];
+
+        if (!isOwnProfile) {
+          promises.push(checkFollowStatus());
+        }
+
+        await Promise.allSettled(promises);
+      } catch (error) {
+        console.error('Failed to initialize profile:', error);
+        toast.error('Failed to load profile data');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    init();
+  }, [targetPubkey, isOwnProfile]);
 
   useEffect(() => {
     if (activeTab === 'liked' && isOwnProfile && likedVideos.length === 0) {
@@ -62,7 +94,7 @@ function ProfileView({ pubkey, onClose, onVideoSelect }: Props) {
   }, [activeTab]);
 
   const loadProfile = async () => {
-    setIsLoading(true);
+  if (!targetPubkey) return;
     try {
       const p = await profileManager.getProfile(targetPubkey);
       setProfile(p);
@@ -71,19 +103,28 @@ function ProfileView({ pubkey, onClose, onVideoSelect }: Props) {
         about: p.about || '',
         picture: p.picture || '',
       });
+      // Check for LUD-16 (Lightning Address) and ensure not viewing own profile
+      setCanZap(!!(p.lud16 && !isOwnProfile));
+      setProfileError(null);
     } catch (error) {
       console.error('Failed to load profile:', error);
-    } finally {
-      setIsLoading(false);
+      setProfileError('Could not load profile');
+      setProfile(null);
+      toast.error('Failed to load profile');
     }
   };
 
   const loadUserVideos = async () => {
+  if (!targetPubkey) return;
     try {
       const videos = await nostrClient.getUserVideos(targetPubkey);
       setUserVideos(videos);
+      setVideosError(null);
     } catch (error) {
       console.error('Failed to load user videos:', error);
+      setUserVideos([]);
+      setVideosError('Could not load videos');
+      toast.error('Failed to load videos');
     }
   };
 
@@ -91,30 +132,42 @@ function ProfileView({ pubkey, onClose, onVideoSelect }: Props) {
     try {
       const videos = await nostrClient.getLikedVideos();
       setLikedVideos(videos);
+      setLikedError(null);
     } catch (error) {
       console.error('Failed to load liked videos:', error);
+      setLikedVideos([]);
+      setLikedError('Could not load liked videos');
+      toast.error('Failed to load liked videos');
     }
   };
 
   const loadStats = async () => {
+  if (!targetPubkey) return;
     try {
       const userStats = await nostrClient.getUserStats(targetPubkey);
       setStats(userStats);
     } catch (error) {
       console.error('Failed to load stats:', error);
+      setStats({ following: 0, followers: 0, likes: 0 });
+      toast.error('Failed to load stats');
     }
   };
 
   const checkFollowStatus = async () => {
+  if (!targetPubkey) return;
     try {
       const following = await nostrClient.isFollowing(targetPubkey);
       setIsFollowing(following);
+      setFollowError(null);
     } catch (error) {
       console.error('Failed to check follow status:', error);
+      setFollowError('Could not check follow status');
+      toast.error('Failed to check follow status');
     }
   };
 
   const handleFollow = async () => {
+  if (!targetPubkey) return;
     try {
       if (isFollowing) {
         await nostrClient.unfollow(targetPubkey);
@@ -127,12 +180,16 @@ function ProfileView({ pubkey, onClose, onVideoSelect }: Props) {
         setStats(prev => ({ ...prev, followers: prev.followers + 1 }));
         toast.success('Following');
       }
+      setFollowError(null);
     } catch (error) {
+      console.error('Failed to update follow status:', error);
+      setFollowError('Failed to update follow');
       toast.error('Failed to update follow status');
     }
   };
 
   const handleSave = async () => {
+  if (!targetPubkey) return;
     setIsSaving(true);
     try {
       await profileManager.updateMyProfile(editForm);
@@ -147,20 +204,44 @@ function ProfileView({ pubkey, onClose, onVideoSelect }: Props) {
   };
 
   const handleShare = () => {
+  if (!targetPubkey) return;
     const npub = nip19.npubEncode(targetPubkey);
     navigator.clipboard.writeText(`nostr:${npub}`);
     toast.success('Profile link copied!');
   };
 
-  const handleExportKeys = () => {
-    const secretKey = nostrClient.getSecretKey();
-    const nsec = nip19.nsecEncode(secretKey);
-    const npub = nip19.npubEncode(nostrClient.publicKey);
-    
-    const keyData = `NOSTR PRIVATE KEY (KEEP SECRET!):\n${nsec}\n\nPUBLIC KEY:\n${npub}`;
-    
-    navigator.clipboard.writeText(keyData);
-    toast.success('Keys copied to clipboard! Keep them safe!', { duration: 5000 });
+  const handleZap = async () => {
+    if (!profile?.lud16 || !targetPubkey) {
+      toast.error("User doesn't have a Lightning Address set up.");
+      return;
+    }
+    try {
+      // The amount is hardcoded for simplicity, but could be a modal input
+      await nostrClient.zapUser(targetPubkey, profile.lud16, 100);
+    } catch (error) {
+      console.error('Zap failed in component:', error);
+      // The nostrClient itself will show a more specific error toast
+    }
+  };
+
+  const handleExportKeys = async () => {
+  if (!nostrClient.publicKey) return;
+    try {
+      const secretKey = await nostrClient.getSecretKey();
+      const nsec = nip19.nsecEncode(secretKey);
+      const npub = nip19.npubEncode(nostrClient.publicKey!);
+      
+      const keyData = `NOSTR PRIVATE KEY (KEEP SECRET!):\n${nsec}\n\nPUBLIC KEY:\n${npub}`;
+      
+      navigator.clipboard.writeText(keyData);
+      toast.success('Keys copied to clipboard! Keep them safe!', { duration: 5000 });
+    } catch (error: any) {
+      if (error.message.includes('NIP-07') || error.message.includes('extension')) {
+        toast('Your keys are managed by the Nostr extension. Check your extension settings to export.');
+      } else {
+        toast.error('Failed to export keys');
+      }
+    }
     setShowKeyExport(false);
   };
 
@@ -175,10 +256,22 @@ function ProfileView({ pubkey, onClose, onVideoSelect }: Props) {
   };
 
   if (isLoading) {
+        return <div className="tiktok-profile-container"><ProfileSkeleton /></div>;
+  }
+  // guard clause right after the loading checks
+  if (!targetPubkey) {
     return (
       <div className="tiktok-profile-container">
-        <div className="tiktok-profile-loading">
-          <div className="loading-spinner"></div>
+        <div className="loading-spinner"></div>
+      </div>
+    );
+   }
+  if (profileError) {
+    return (
+      <div className="tiktok-profile-container">
+        <div className="error-overlay">
+          <p>{profileError}</p>
+          <button onClick={loadProfile}>Retry</button>
         </div>
       </div>
     );
@@ -328,9 +421,17 @@ function ProfileView({ pubkey, onClose, onVideoSelect }: Props) {
               <button 
                 className={`follow-button ${isFollowing ? 'following' : ''}`}
                 onClick={handleFollow}
+                disabled={!!followError}
               >
-                {isFollowing ? 'Following' : 'Follow'}
+                {followError ? 'Error' : isFollowing ? 'Following' : 'Follow'}
               </button>
+
+              {canZap && (
+                <button className="zap-button" onClick={handleZap} title="Send a Lightning tip">
+                  ⚡ Zap
+                </button>
+              )}
+
               <button className="message-button">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/>
@@ -379,7 +480,12 @@ function ProfileView({ pubkey, onClose, onVideoSelect }: Props) {
       {/* Video Grid */}
       <div className="video-grid">
         {activeTab === 'videos' && (
-          userVideos.length > 0 ? (
+          videosError ? (
+            <div className="empty-state error-state">
+              <p>{videosError}</p>
+              <button onClick={loadUserVideos}>Retry</button>
+            </div>
+          ) : userVideos.length > 0 ? (
             userVideos.map((video) => (
               <div 
                 key={video.id} 
@@ -389,11 +495,15 @@ function ProfileView({ pubkey, onClose, onVideoSelect }: Props) {
                   onClose();
                 }}
               >
-                <div className="thumbnail-placeholder">
+                {video.thumbnail ? (
+                  <img src={video.thumbnail} alt={video.title} className="video-thumbnail-img" loading="lazy" />
+                ) : (
+                  <div className="thumbnail-placeholder">
                   <svg width="24" height="24" viewBox="0 0 24 24" fill="white">
                     <path d="M8 5v14l11-7z"/>
                   </svg>
                 </div>
+                 )}
                 <div className="thumbnail-info">
                   <p className="video-title">{video.title}</p>
                   <div className="video-stats">
@@ -414,7 +524,12 @@ function ProfileView({ pubkey, onClose, onVideoSelect }: Props) {
         
         {activeTab === 'liked' && (
           isOwnProfile ? (
-            likedVideos.length > 0 ? (
+            likedError ? (
+              <div className="empty-state error-state">
+                <p>{likedError}</p>
+                <button onClick={loadLikedVideos}>Retry</button>
+              </div>
+            ) : likedVideos.length > 0 ? (
               likedVideos.map((video) => (
                 <div 
                   key={video.id} 

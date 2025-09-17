@@ -3,7 +3,7 @@ import { Swiper, SwiperSlide } from 'swiper/react';
 import { Mousewheel, Virtual } from 'swiper/modules';
 import 'swiper/css';
 import 'swiper/css/virtual';
-
+import { VideoFeedSkeleton } from './SkeletonLoader';
 import { nostrClient } from '../core/nostr';
 import { getProfileManager } from '../core/profiles';
 import { nip19 } from 'nostr-tools';
@@ -31,7 +31,6 @@ function VideoFeed() {
         return updatedVideos.sort((a, b) => b.createdAt - a.createdAt);
       });
 
-      // Load author profile in the background
       try {
         const profile = await profileManager.getProfile(video.author);
         if (profile && profile.name) {
@@ -50,7 +49,7 @@ function VideoFeed() {
   }, []);
 
   if (isLoading) {
-    return <div className="loading-spinner"></div>;
+    return <VideoFeedSkeleton />;
   }
 
   if (videos.length === 0) {
@@ -82,6 +81,7 @@ function VideoFeed() {
                 <>
                   <VideoPlayer
                     magnetURI={video.magnetURI}
+                    hash={video.hash}
                     isActive={isActive}
                   />
                   <div className="overlay-info">

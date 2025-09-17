@@ -1,86 +1,103 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { webTorrentClient } from '../core/webtorrent';
+import './VideoPlayer.css';
 
 interface Props {
   magnetURI: string;
+  hash?: string;
   isActive: boolean;
 }
 
-function VideoPlayer({ magnetURI, isActive }: Props) {
+function VideoPlayer({ magnetURI, hash, isActive }: Props) {
+  const [isMuted, setIsMuted] = useState(() => localStorage.getItem('videoMuted') === 'true');
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [error, setError] = useState<string | null>(null);
   const currentMagnetRef = useRef<string>('');
 
-  console.log(`[VideoPlayer] Render - isActive: ${isActive}, magnetURI: ${magnetURI?.substring(0, 30)}...`);
-
-    useEffect(() => {
-      let mounted = true;
-      const videoElement = videoRef.current;
-      
-      console.log(`[VideoPlayer] Effect triggered:`, {
-        isActive,
-        hasVideoElement: !!videoElement,
-        magnetURI: magnetURI?.substring(0, 30) + '...',
-        currentMagnet: currentMagnetRef.current?.substring(0, 30) + '...'
-      });
-      
-      if (isActive && videoElement && magnetURI && mounted) {
-        if (currentMagnetRef.current !== magnetURI) {
-          console.log('[VideoPlayer] Loading new video...');
-          
-          // Clear previous video
-          console.log('[VideoPlayer] Clearing previous video source');
-          videoElement.src = '';
-          videoElement.load();
-          
-          currentMagnetRef.current = magnetURI;
-          console.log('[VideoPlayer] Calling webTorrentClient.stream()');
-          webTorrentClient.stream(magnetURI, videoElement);
-          
-          // Add video element event listeners for debugging
-          videoElement.addEventListener('loadstart', () => 
-            console.log('[VideoPlayer] Video event: loadstart'));
-          videoElement.addEventListener('loadedmetadata', () => 
-            console.log('[VideoPlayer] Video event: loadedmetadata'));
-          videoElement.addEventListener('loadeddata', () => 
-            console.log('[VideoPlayer] Video event: loadeddata'));
-          videoElement.addEventListener('canplay', () => 
-            console.log('[VideoPlayer] Video event: canplay'));
-          videoElement.addEventListener('canplaythrough', () => 
-            console.log('[VideoPlayer] Video event: canplaythrough'));
-          videoElement.addEventListener('play', () => 
-            console.log('[VideoPlayer] Video event: play'));
-          videoElement.addEventListener('pause', () => 
-            console.log('[VideoPlayer] Video event: pause'));
-          videoElement.addEventListener('error', (e) => 
-            console.error('[VideoPlayer] Video error:', e));
-        } else {
-          console.log('[VideoPlayer] Same video, no reload needed');
-        }
-      } else if (videoElement && mounted) {
-        console.log('[VideoPlayer] Pausing video (not active)');
-        videoElement.pause();
+  useEffect(() => {
+    let mounted = true;
+    const videoElement = videoRef.current;
+    
+    if (isActive && videoElement && magnetURI && mounted) {
+      if (currentMagnetRef.current !== magnetURI) {
+        // Reset state for new video
+        setError(null); 
+        videoElement.src = '';
+        currentMagnetRef.current = magnetURI;
+        
+        webTorrentClient.stream(magnetURI, videoElement, hash)
+          .catch((err) => {
+            if (mounted) {
+              setError(err.message || 'Failed to load video');
+            }
+          });
+        
+        videoElement.addEventListener('error', () => {
+          if (mounted) {
+            setError('Video playback error');
+          }
+        });
       }
-      
-      return () => {
-        mounted = false;
-        console.log(`[VideoPlayer] Cleanup for magnetURI: ${magnetURI?.substring(0, 30)}...`);
-        if (magnetURI && mounted === false) {
-          webTorrentClient.remove(magnetURI);
-        }
-      };
-    }, [isActive, magnetURI]);
+    } else if (videoElement && mounted) {
+      videoElement.pause();
+    }
+    
+    return () => {
+      mounted = false;
+    };
+  }, [isActive, magnetURI, hash]);
 
-  return (
-    <video
-      ref={videoRef}
-      className="video-player"
-      loop
-      playsInline
-      muted
-      controls
-      onError={(e) => console.error('[VideoPlayer] Video element error:', e)}
-    />
-  );
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.muted = isMuted;
+    }
+  }, [isMuted]);
+
+  const toggleMute = () => {
+    const newMutedState = !isMuted;
+    setIsMuted(newMutedState);
+    localStorage.setItem('videoMuted', String(newMutedState));
+  };
+
+  const handleRetry = () => {
+    setError(null);
+    if (videoRef.current) {
+      videoRef.current.src = '';
+      videoRef.current.load();
+    }
+    // Re-trigger load if needed
+    if (currentMagnetRef.current === magnetURI && isActive) {
+      webTorrentClient.stream(magnetURI, videoRef.current!, hash).catch(setError);
+    }
+  };
+
+  if (error) {
+    return (
+      <div className="video-player error-container">
+        <div className="error-overlay">
+          <p>{error}</p>
+          <button onClick={handleRetry}>Retry</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (<>
+      <video
+        ref={videoRef}
+        className="video-player"
+        loop
+        playsInline
+        autoPlay={isActive}
+        controls={false} // Use custom controls
+        onClick={toggleMute}
+      />
+      {isActive && (
+        <button className="mute-btn" onClick={toggleMute} aria-label="Toggle Mute">
+          {isMuted ? '🔇' : '🔊'}
+        </button>
+      )}
+  </>);
 }
 
 export default VideoPlayer;

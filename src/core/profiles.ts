@@ -1,5 +1,4 @@
 import { SimplePool, finalizeEvent, UnsignedEvent, getPublicKey } from 'nostr-tools';
-
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
 
 export interface UserProfile {
@@ -23,39 +22,62 @@ const RELAYS = [
 class ProfileManager {
   private pool = new SimplePool();
   private profileCache = new Map<string, UserProfile>();
-  private secretKey: Uint8Array;
-  public publicKey: string;
+  private secretKey: Uint8Array | null = null;
+  public publicKey: string | null = null;
+  private usingExtension: boolean = false;
+  private extension: any = null;
   
   constructor() {
-    // Get the same keys from localStorage that nostr.ts uses
-    const sk = localStorage.getItem('nostr_sk');
-    if (sk) {
-      this.secretKey = hexToBytes(sk);
-      this.publicKey = getPublicKey(this.secretKey);
+    this.extension = typeof window !== 'undefined' ? (window as any).nostr : null;
+    this.usingExtension = !!this.extension;
+
+    if (!this.usingExtension) {
+      const sk = localStorage.getItem('nostr_sk');
+      if (sk) {
+        this.secretKey = hexToBytes(sk);
+        this.publicKey = getPublicKey(this.secretKey);
+      } else {
+        throw new Error('No Nostr keys found');
+      }
     } else {
-      throw new Error('No Nostr keys found');
+      this.publicKey = null;
+      this.secretKey = null;
     }
   }
   
+  private async ensureInitialized(): Promise<void> {
+    if (this.publicKey) return;
+
+    if (this.usingExtension) {
+      this.publicKey = await this.extension.getPublicKey();
+    }
+  }
+
+  private async signEvent(unsigned: UnsignedEvent): Promise<any> {
+    await this.ensureInitialized();
+    if (this.usingExtension) {
+      return await this.extension.signEvent(unsigned);
+    } else {
+      return finalizeEvent(unsigned, this.secretKey!);
+    }
+  }
+
   public async getProfile(pubkey: string): Promise<UserProfile> {
-    console.log('📝 Fetching profile for:', pubkey.substring(0, 10) + '...');
-    
-    // Check cache first
     if (this.profileCache.has(pubkey)) {
-      console.log('✅ Profile found in cache');
       return this.profileCache.get(pubkey)!;
     }
     
     try {
       const events = await this.pool.querySync(RELAYS, {
-        kinds: [0], // Kind 0 is for profile metadata
+        kinds: [0],
         authors: [pubkey],
         limit: 1
       });
       
       if (events.length === 0) {
-        console.log('❌ No profile found, returning default');
-        return { pubkey }; // Return minimal profile
+        const minimal: UserProfile = { pubkey };
+        this.profileCache.set(pubkey, minimal);
+        return minimal;
       }
       
       const profileEvent = events[0];
@@ -73,21 +95,21 @@ class ProfileManager {
         created_at: profileEvent.created_at
       };
       
-      console.log('✅ Profile loaded:', profile.name || 'Unnamed');
       this.profileCache.set(pubkey, profile);
       return profile;
       
     } catch (error) {
       console.error('Failed to fetch profile:', error);
-      return { pubkey }; // Return minimal profile on error
+      const minimal: UserProfile = { pubkey };
+      this.profileCache.set(pubkey, minimal);
+      return minimal;
     }
   }
   
   public async updateMyProfile(updates: Partial<UserProfile>): Promise<void> {
-    console.log('📤 Updating profile:', updates);
+    await this.ensureInitialized();
     
-    // Get current profile to merge with updates
-    const currentProfile = this.profileCache.get(this.publicKey) || { pubkey: this.publicKey };
+    const currentProfile = this.profileCache.get(this.publicKey!) || { pubkey: this.publicKey! };
     const mergedProfile = { ...currentProfile, ...updates };
     
     const content = {
@@ -103,32 +125,33 @@ class ProfileManager {
     const event: UnsignedEvent = {
       kind: 0,
       created_at: Math.floor(Date.now() / 1000),
-      pubkey: this.publicKey,
+      pubkey: this.publicKey!,
       tags: [],
       content: JSON.stringify(content)
     };
     
-    const signedEvent = finalizeEvent(event, this.secretKey);
+    const signedEvent = await this.signEvent(event);
     
-    console.log('📡 Publishing profile update...');
     const results = await this.pool.publish(RELAYS, signedEvent);
-    console.log('✅ Profile updated:', results);
     
-    // Update cache
-    this.profileCache.set(this.publicKey, {
+    this.profileCache.set(this.publicKey!, {
       ...mergedProfile,
-      pubkey: this.publicKey,
+      pubkey: this.publicKey!,
       created_at: event.created_at
     });
+    
+    console.log('✅ Profile updated:', results);
   }
   
   public getSecretKey(): string {
-    return bytesToHex(this.secretKey);
+    if (this.usingExtension) {
+      throw new Error('Using NIP-07 extension');
+    }
+    return bytesToHex(this.secretKey!);
   }
   
   public clearCache(): void {
     this.profileCache.clear();
-    console.log('🧹 Profile cache cleared');
   }
   
   public getCachedProfile(pubkey: string): UserProfile | undefined {
@@ -136,17 +159,11 @@ class ProfileManager {
   }
 }
 
-// Create singleton instance
 let profileManagerInstance: ProfileManager | null = null;
 
 export function getProfileManager(): ProfileManager {
   if (!profileManagerInstance) {
-    try {
-      profileManagerInstance = new ProfileManager();
-    } catch (error) {
-      console.error('Failed to initialize ProfileManager:', error);
-      throw error;
-    }
+    profileManagerInstance = new ProfileManager();
   }
   return profileManagerInstance;
 }
