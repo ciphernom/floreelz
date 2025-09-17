@@ -22,7 +22,7 @@ let client: Client | null = null;
    
    public async isAuthenticated(): Promise<boolean> {
     const web3Client = await this.getClient();
-    return !!web3Client.did();
+    return web3Client.proofs().length > 0;
    }
 
    public async login(email: string): Promise<void> {
@@ -47,9 +47,14 @@ let client: Client | null = null;
      }
  
      // Set the active storage space (defaults to one created on login).
-     const spaces = web3Client.spaces();
+     let spaces = web3Client.spaces();
      if (spaces.length > 0) {
        await web3Client.setCurrentSpace(spaces[0].did());
+     } else {
+      // If no space exists for a new user, create one.
+      const newSpace = await web3Client.createSpace('floreelz-videos');
+      await web3Client.setCurrentSpace(newSpace.did());
+      console.log('✨ Created and set new web3.storage space.');
      }
  
      console.log('📁 Uploading to web3.storage:', file.name);
