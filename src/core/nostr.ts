@@ -36,8 +36,9 @@ class NostrClient {
   public likedVideos: Set<string> = new Set();
   private moderationSystem = new ModerationSystem();
   public reputationManager: ReputationManager;
-  private usingExtension: boolean = false;
+  public usingExtension: boolean = false;
   private extension: any = null;
+  public isNewUser: boolean = false;
 
   constructor() {
     console.log('🔐 Initializing Nostr client...');
@@ -49,6 +50,7 @@ class NostrClient {
       let sk = localStorage.getItem('nostr_sk');
       if (!sk) {
         this.secretKey = generateSecretKey();
+        this.isNewUser = true;
         localStorage.setItem('nostr_sk', bytesToHex(this.secretKey));
         console.log('🆕 Generated new secret key');
       } else {

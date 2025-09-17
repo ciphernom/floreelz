@@ -1,16 +1,29 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import VideoFeed from './components/VideoFeed';
 import UploadModal from './components/UploadModal';
 import ProfileView from './components/ProfileView';
 import './index.css';
 import { Toaster } from 'react-hot-toast';
+import { nostrClient } from './core/nostr';
+import KeyBackupNag from './components/KeyBackupNag';
 
 function App() {
   const [isUploadModalOpen, setUploadModalOpen] = useState(false);
   const [isProfileOpen, setProfileOpen] = useState(false);
+  const [showBackupNag, setShowBackupNag] = useState(false);
+
+  useEffect(() => {
+    // Show backup reminder only for new users with browser-generated keys
+    if (nostrClient.isNewUser && !nostrClient.usingExtension) {
+      setShowBackupNag(true);
+    }
+  }, []);
 
   return (
     <div className="app-container">
+      {showBackupNag && (
+        <KeyBackupNag onBackup={() => setProfileOpen(true)} />
+      )}
       <Toaster
         position="bottom-center"
         toastOptions={{

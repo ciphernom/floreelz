@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { nostrClient } from '../core/nostr';
 import { webTorrentClient } from '../core/webtorrent';
-import { ipfsClient } from '../core/ipfs';
+import { ipfsClient, LoginRequiredError } from '../core/ipfs';
 import { toast } from 'react-hot-toast';
+import LoginModal from './LoginModal';
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB limit
 
@@ -47,6 +48,7 @@ function UploadModal({ isOpen, onClose }: Props) {
   const [title, setTitle] = useState('');
   const [summary, setSummary] = useState('');
   const [isUploading, setIsUploading] = useState(false);
+  const [isLoginModalOpen, setLoginModalOpen] = useState(false);
 
   const handleUpload = async () => {
     if (!file || !title || isUploading) {
@@ -62,9 +64,13 @@ function UploadModal({ isOpen, onClose }: Props) {
     setIsUploading(true);
     const toastId = toast.loading('Seeding video to network. Please keep this tab open.');
 
-    try {
+     try {
+      // Check IPFS auth *before* seeding to fail fast.
+      if (!(await ipfsClient.isAuthenticated())) {
+        throw new LoginRequiredError();
+      }
       const magnetURI = await webTorrentClient.seed(file);
-      toast.loading('Uploading to IPFS for persistence...', { id: toastId });
+
       const cid = await ipfsClient.uploadFile(file);
       console.log('✅ Seeding complete! Magnet URI:', magnetURI);
       console.log('✅ IPFS upload complete! CID:', cid);
@@ -86,8 +92,15 @@ function UploadModal({ isOpen, onClose }: Props) {
       setSummary('');
       onClose();
     } catch (error) {
+      if (error instanceof LoginRequiredError) {
+        toast.dismiss(toastId);
+        toast.error('Please log in to upload.', { icon: '🔑' });
+        setLoginModalOpen(true);
+      } else {
       console.error('❌ Upload failed:', error);
-      toast.error('Upload failed. Check console for details.', { id: toastId });
+     const errorMessage = (error instanceof Error) ? error.message : 'Upload failed. Check console for details.';
+     toast.error(errorMessage, { id: toastId });
+     }
     } finally {
       setIsUploading(false);
     }
@@ -96,6 +109,7 @@ function UploadModal({ isOpen, onClose }: Props) {
   if (!isOpen) return null;
 
   return (
+   <>
     <div className="modal-overlay">
       <div className="modal-content">
         <h2>Upload Video</h2>
@@ -123,6 +137,11 @@ function UploadModal({ isOpen, onClose }: Props) {
         </div>
       </div>
     </div>
+      <LoginModal
+        isOpen={isLoginModalOpen}
+        onClose={() => setLoginModalOpen(false)}
+      />
+    </>
   );
 }
 

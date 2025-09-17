@@ -1,17 +1,59 @@
-import { create } from 'ipfs-http-client';
+import { create, Client } from '@web3-storage/w3up-client';
+import { toast } from 'react-hot-toast';
 
- 
- // Replace with environment variables in a real application
- const IPFS_PROJECT_ID = import.meta.env.VITE_IPFS_PROJECT_ID;
- const IPFS_PROJECT_SECRET = import.meta.env.VITE_IPFS_PROJECT_SECRET;
- 
- const auth = 'Basic ' + btoa(IPFS_PROJECT_ID + ':' + IPFS_PROJECT_SECRET);
- const ipfs = create({ url: 'https://ipfs.infura.io:5001', headers: { authorization: auth } });
+export class LoginRequiredError extends Error {
+  constructor(message = 'Login is required for IPFS upload.') {
+    super(message);
+    this.name = 'LoginRequiredError';
+  }
+}
+
+// Create a single, shared client instance that can be reused.
+let client: Client | null = null;
  
  class IPFSClient {
+   private async getClient(): Promise<Client> {
+     if (client) {
+       return client;
+     }
+     client = await create();
+     return client;
+   }
+   
+   public async isAuthenticated(): Promise<boolean> {
+    const web3Client = await this.getClient();
+    return !!web3Client.did();
+   }
+
+   public async login(email: string): Promise<void> {
+    const web3Client = await this.getClient();
+    const toastId = toast.loading('Login required. Please check your email for a magic link from web3.storage.');
+    try {
+      await web3Client.login(email as `${string}@${string}`);
+      // The page will reload after a successful login via the magic link.
+      // The UI should inform the user of this.
+      toast.success('Login successful! You can now try uploading again.', { id: toastId });
+    } catch (err) {
+      toast.error('Login failed. Please try again.', { id: toastId });
+      throw err;
+    }
+   }   
+   
+   
    public async uploadFile(file: File): Promise<string> {
-     console.log('📁 Uploading to IPFS:', file.name);
-     const { cid } = await ipfs.add(file);
+     const web3Client = await this.getClient();
+     if (!web3Client.did()) {
+      throw new LoginRequiredError();
+     }
+ 
+     // Set the active storage space (defaults to one created on login).
+     const spaces = web3Client.spaces();
+     if (spaces.length > 0) {
+       await web3Client.setCurrentSpace(spaces[0].did());
+     }
+ 
+     console.log('📁 Uploading to web3.storage:', file.name);
+     const cid = await web3Client.uploadFile(file);
      const cidString = cid.toString();
      console.log('✅ IPFS CID:', cidString);
      return cidString;

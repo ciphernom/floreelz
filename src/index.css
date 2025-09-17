@@ -364,3 +364,46 @@ body {
   aspect-ratio: 9 / 16;
   width: 100%;
 }
+
+/* Login Modal Specifics */
+.modal-content p {
+  margin-bottom: 15px;
+  color: #ddd;
+}
+
+/* Key Backup Nag Styles */
+.key-backup-nag {
+  position: fixed;
+  bottom: 60px; /* Position above nav buttons */
+  left: 50%;
+  transform: translateX(-50%);
+  width: 90%;
+  max-width: 500px;
+  background-color: #2a2a2a;
+  color: white;
+  padding: 12px 15px;
+  border-radius: 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  z-index: 1001;
+  border: 1px solid #444;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+}
+
+.key-backup-nag p {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.key-backup-nag-actions .backup-btn {
+  background-color: #007bff;
+}
+
+.key-backup-nag-actions .dismiss-btn {
+  background: none;
+  border: none;
+  color: #aaa;
+  font-size: 0.8rem;
+  margin-left: 10px;
+}
