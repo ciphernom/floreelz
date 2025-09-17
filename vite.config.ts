@@ -2,11 +2,19 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { nodePolyfills } from 'vite-plugin-node-polyfills';
 import { VitePWA } from 'vite-plugin-pwa';
+import path from 'path';
 
 export default defineConfig({
   plugins: [
     react(),
-    nodePolyfills({ protocolImports: true }), // Polyfills process, global, etc.
+    nodePolyfills({
+      protocolImports: true,
+      globals: {
+        Buffer: true,
+        process: true,
+        global: true,
+      },
+    }),
     VitePWA({
       registerType: 'autoUpdate',
       devOptions: {
@@ -16,18 +24,17 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
         runtimeCaching: [
           {
-            urlPattern: /wss:\/\//, // Match websocket connections
-            handler: 'NetworkOnly' // Don't cache websockets
+            urlPattern: /wss:\/\//,
+            handler: 'NetworkOnly'
           },
           {
-            // Cache Nostr events with network-first strategy
             urlPattern: ({ url }: { url: URL }) => url.protocol === 'https:' && url.pathname.startsWith('/'),
             handler: 'NetworkFirst',
             options: {
               cacheName: 'nostr-events',
               expiration: {
                 maxEntries: 200,
-                maxAgeSeconds: 24 * 60 * 60 // 1 day
+                maxAgeSeconds: 24 * 60 * 60
               }
             }
           }
@@ -41,27 +48,27 @@ export default defineConfig({
         background_color: '#000000',
         display: 'standalone',
         start_url: '/',
-        icons: [
-          {
-            src: 'pwa-192x192.png',
-            sizes: '192x192',
-            type: 'image/png'
-          },
-          {
-            src: 'pwa-512x512.png',
-            sizes: '512x512',
-            type: 'image/png'
-          }
-        ]
+        icons: [] // Empty for dev
       }
     }),
   ],
   optimizeDeps: {
-    include: ['webtorrent'], // Force pre-bundling
+    include: [
+      'webtorrent',
+      'bittorrent-dht',
+      'torrent-discovery'
+    ],
   },
   resolve: {
     alias: {
-      webtorrent: 'webtorrent/dist/webtorrent.min.js',
+      'bittorrent-dht': path.resolve(__dirname, 'src/shims/bittorrent-dht.ts'),
     },
+  },
+  ssr: {
+    noExternal: [
+      'webtorrent',
+      'bittorrent-dht',
+      'torrent-discovery'
+    ],
   },
 });

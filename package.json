@@ -12,6 +12,7 @@
   "dependencies": {
     "@noble/hashes": "^2.0.0",
     "@storacha/client": "^1.7.10",
+    "bittorrent-dht": "^10.0.1", 
     "bittorrent-tracker": "^11.2.2",
     "idb": "^8.0.0",
     "nostr-tools": "^2.16.2",
