@@ -21,6 +21,7 @@ export default defineConfig({
         enabled: true
       },
       workbox: {
+        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024, // Set to 4 MB
         globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
         runtimeCaching: [
           {
@@ -40,16 +41,29 @@ export default defineConfig({
           }
         ]
       },
-      manifest: {
-        name: 'FloReelz',
-        short_name: 'FloReelz',
-        description: 'Decentralized Video Sharing on Nostr',
-        theme_color: '#000000',
-        background_color: '#000000',
-        display: 'standalone',
-        start_url: '/',
-        icons: [] // Empty for dev
-      }
+        manifest: {
+          name: 'FloReelz',
+          short_name: 'FloReelz',
+          description: 'Decentralized Video Sharing on Nostr',
+          theme_color: '#000000',
+          background_color: '#000000',
+          display: 'standalone',
+          start_url: '/',
+          icons: [
+            {
+              src: 'icon-192x192.png',
+              sizes: '192x192',
+              type: 'image/png',
+              purpose: 'any maskable'
+            },
+            {
+              src: 'icon-512x512.png',
+              sizes: '512x512',
+              type: 'image/png',
+              purpose: 'any maskable'
+            }
+          ]
+        }
     }),
   ],
   optimizeDeps: {
