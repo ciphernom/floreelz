@@ -1,3 +1,4 @@
+![FloReelz Logo](https://raw.githubusercontent.com/ciphernom/floreelz/dd176078aabb86764663c814b905f0016c60d430/logo.png)
 # FloReelz
 
 FloReelz is a decentralized video-sharing application implemented in React and TypeScript. It integrates Nostr for metadata and interaction events, WebTorrent for peer-to-peer video seeding and streaming, and Storacha (IPFS-based) for persistent storage fallback. The application supports video uploads limited to 100MB MP4 files, a vertical swipeable feed for browsing, and basic interactions like likes and reports, all without reliance on centralized servers.
