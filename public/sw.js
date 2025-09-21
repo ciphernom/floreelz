@@ -1,5 +1,6 @@
 import { clientsClaim } from 'workbox-core';
  import { precacheAndRoute, cleanupOutdatedCaches } from 'workbox-precaching';
+ import { ExpirationPlugin } from 'workbox-expiration';
  import { registerRoute } from 'workbox-routing';
  import { NetworkFirst } from 'workbox-strategies';
  import { CacheableResponsePlugin } from 'workbox-cacheable-response';
@@ -29,6 +30,19 @@ import { clientsClaim } from 'workbox-core';
        const response = await fetch(request);
  
        // If successful, clone, cache, and store in IDB for persistence
+       // Evict old IDB entries if over limit
+       const db = await dbPromise;
+       const tx = db.transaction('blobs', 'readwrite');
+       const store = tx.objectStore('blobs');
+       const count = await store.count();
+       if (count >= 10) {  // Max 10 videos ~1GB
+         const cursor = await store.openCursor(null, 'prev');  // Oldest last
+         if (cursor) {
+           await store.delete(cursor.primaryKey);
+           console.log('🗑️ Evicted old video from IDB');
+         }
+       }
+
        const responseClone = response.clone();
        const cache = await caches.open('video-blobs');
        await cache.put(request, responseClone);
@@ -51,10 +65,21 @@ import { clientsClaim } from 'workbox-core';
        const stored = await db.get('blobs', request.url);
        if (stored) {
          return new Response(stored.blob, {
-           headers: { 'Content-Type': 'video/mp4' },
+           headers: { 'Content-Type': stored.blob.type || 'video/mp4' },
          });
        }
        throw err;
      }
    }
+ );
+ // Enhance cache with expiration
+ registerRoute(
+   ({ request }) => request.destination === 'video',
+   new NetworkFirst({
+     cacheName: 'video-blobs',
+     plugins: [
+       new CacheableResponsePlugin({ statuses: [0, 200] }),
+       new ExpirationPlugin({ maxEntries: 20, maxAgeSeconds: 604800 })  // 7 days
+     ]
+   })
  );

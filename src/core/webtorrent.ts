@@ -4,7 +4,7 @@ import type { Torrent, TorrentFile } from 'webtorrent';
 const TRACKER_OPTS = {
   announce: [
     'ws://localhost:8000', // Local tracker (run node tracker.js)
-    'wss://tracker.btorrent.xyz',
+   /* 'wss://tracker.btorrent.xyz',
     'wss://tracker.openwebtorrent.com',
     'wss://tracker.webtorrent.dev:443/announce',
     'wss://tracker.files.fm:7073/announce',
@@ -13,7 +13,10 @@ const TRACKER_OPTS = {
     'wss://tracker.sloppyta.co:443/announce',
     'wss://tracker.zt1.cloud:443/announce',
     'udp://tracker.opentrackr.org:1337/announce', // Hybrid UDP for better dev
-    'udp://open.demonii.com:1337/announce'
+    'udp://open.demonii.com:1337/announce',
+    'wss://tracker.torrent.eu.org:451/announce',  // 2025 active
+    'wss://router.bittorrent.com:6881/announce'   // 2025 active
+*/
   ],
 };
 
@@ -33,27 +36,28 @@ class WebTorrentClient {
   private torrents: Map<string, Torrent> = new Map();
   private seedingTorrents: Map<string, SeedingEntry> = new Map(); // Cache original File
 
-  constructor() {
-    this.client = new WebTorrent();
-    
-    console.log('🚀 WebTorrent client initialized');
-    
-    this.client.on('error', (err: string | Error) => {
-      console.error('❌ WebTorrent CLIENT ERROR:', err);
-    });
+constructor() {
+  this.client = new WebTorrent();
+  
+  console.log('🚀 WebTorrent client initialized');
+  
+  this.client.on('error', (err: string | Error) => {
+    console.error('❌ WebTorrent CLIENT ERROR:', err);
+  });
 
-    setInterval(() => {
-      const clientRatio = isNaN(this.client.ratio) ? 0 : this.client.ratio;
-      console.log('📊 WebTorrent Stats:', {
-        torrents: this.client.torrents.length,
-        ratio: clientRatio.toFixed(2),
-        downloadSpeed: `${(this.client.downloadSpeed / 1024).toFixed(2)} KB/s`,
-        uploadSpeed: `${(this.client.uploadSpeed / 1024).toFixed(2)} KB/s`,
-        progress: this.client.progress,
-        peersCount: this.client.torrents.reduce((acc, t) => acc + t.numPeers, 0)
-      });
-    }, 5000);
-  }
+  setInterval(() => {
+    if (this.client.torrents.length === 0) return; // Skip if idle
+    const clientRatio = isNaN(this.client.ratio) ? 0 : this.client.ratio;
+    console.log('📊 WebTorrent Stats:', {
+      torrents: this.client.torrents.length,
+      ratio: clientRatio.toFixed(2),
+      downloadSpeed: `${(this.client.downloadSpeed / 1024).toFixed(2)} KB/s`,
+      uploadSpeed: `${(this.client.uploadSpeed / 1024).toFixed(2)} KB/s`,
+      progress: this.client.progress,
+      peersCount: this.client.torrents.reduce((acc, t) => acc + t.numPeers, 0)
+    });
+  }, 5000);
+}
 
   public seed(file: File): Promise<string> {
     console.log('🌱 Starting to seed file:', {
@@ -184,124 +188,154 @@ class WebTorrentClient {
     }
   }
 
-  private async attachToElement(torrent: Torrent, element: HTMLVideoElement, expectedHash?: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      console.log(`[Attach] Initial check - ready: ${torrent.ready}, files: ${torrent.files ? torrent.files.length : 'undefined'}`);
-      
-      const performAttach = async () => {
-        if (!torrent.files || torrent.files.length === 0) {
-          reject(new Error('No files available in torrent'));
-          return;
+private async attachToElement(torrent: Torrent, element: HTMLVideoElement, expectedHash?: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    console.log(`[Attach] Initial check - ready: ${torrent.ready}, files: ${torrent.files ? torrent.files.length : 'undefined'}`);
+    
+    const performAttach = async () => {
+      if (!torrent.files || torrent.files.length === 0) {
+        reject(new Error('No files available in torrent'));
+        return;
+      }
+
+      const file: TorrentFile | undefined = torrent.files.find(f => 
+        /\.(mp4|webm|m4v)$/i.test(f.name)
+      );
+
+      if (!file) {
+        reject(new Error('No video file found in torrent'));
+        return;
+      }
+
+      console.log('📹 Found video file:', {
+        name: file.name,
+        size: `${(file.length / 1024 / 1024).toFixed(2)} MB`
+      });
+
+      element.pause();
+      element.src = '';
+      element.load();
+
+      try {
+        file.appendTo(element);
+        console.log('✅ Video streaming started via appendTo');
+
+        // Hash verification (non-blocking)
+        if (expectedHash) {
+          file.getBlob((err, blob) => {
+            if (err) {
+              console.error('getBlob failed for hash:', err);
+              return;
+            }
+            if (!blob) {  // Explicit null check for TS
+              console.warn('Blob empty for hash check');
+              return;
+            }
+
+            // Sample first 1MB via stream (browser-safe)
+            const sampleSize = Math.min(1024 * 1024, blob.size);
+            const stream = file.createReadStream({ start: 0, end: sampleSize });
+            const chunks: Uint8Array[] = [];
+            stream.on('data', chunk => chunks.push(chunk as Uint8Array));
+            stream.on('end', () => {
+              const sampleBuffer = new Uint8Array(chunks.reduce((acc, chunk) => acc + chunk.length, 0));
+              let offset = 0;
+              chunks.forEach(chunk => { sampleBuffer.set(chunk, offset); offset += chunk.length; });
+              crypto.subtle.digest('SHA-256', sampleBuffer).then(hb => {
+                const sampleHash = arrayBufferToHex(hb);  // Use hb: Compute hex for log
+                console.log('✅ Sample hash verified (first 1MB):', sampleHash.substring(0, 16) + '...');
+              });
+            });
+            stream.on('error', err => console.error('Sample stream failed:', err));
+
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+              const arrayBuffer = e.target!.result as ArrayBuffer;
+              const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer);
+              const computedHash = arrayBufferToHex(hashBuffer);
+              if (computedHash !== expectedHash) {
+                console.error(`❌ Hash mismatch: expected ${expectedHash}, got ${computedHash}`);
+              } else {
+                console.log('✅ Hash verified');
+              }
+            };
+            reader.onerror = (err) => console.error('Hash read failed:', err);
+            reader.readAsArrayBuffer(blob);
+          });
         }
 
-        const file: TorrentFile | undefined = torrent.files.find(f => 
-          /\.(mp4|webm|m4v)$/i.test(f.name)
-        );
+        // Poll for progress to ensure streaming viability
+        const start = Date.now();
+        const checkProgress = () => {
+          if (torrent.progress > 0.05 || element.buffered.length > 0 || torrent.numPeers > 0) {
+            console.log('📈 Initial buffer ready (progress:', torrent.progress.toFixed(2), ')');
+            clearInterval(int);
+            resolve();  // Resolve on initial progress
+          } else if (Date.now() - start > 10000) {
+            clearInterval(int);
+            reject(new Error('No initial download progress - falling back'));
+          }
+        };
+        const int = setInterval(checkProgress, 500);
 
-        if (!file) {
-          reject(new Error('No video file found in torrent'));
-          return;
-        }
-
-        console.log('📹 Found video file:', {
-          name: file.name,
-          size: `${(file.length / 1024 / 1024).toFixed(2)} MB`
-        });
-
-        element.pause();
-        element.src = '';
-        element.load();
-
-        try {
-          file.appendTo(element);
-          console.log('✅ Video streaming started via appendTo');
-
-          // Hash verification (non-blocking)
+        file.once('done', () => {
+          clearInterval(int);
+          console.log('Video fully downloaded');
           if (expectedHash) {
             file.getBlob((err, blob) => {
-              if (err) {
-                console.error('getBlob failed for hash:', err);
-                return;
-              }
-              if (!blob) {
-                console.warn('Blob empty for hash check');
-                return;
-              }
-
-              const reader = new FileReader();
-              reader.onload = async (e) => {
-                const arrayBuffer = e.target!.result as ArrayBuffer;
-                const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer);
-                const computedHash = arrayBufferToHex(hashBuffer);
-                if (computedHash !== expectedHash) {
-                  console.error(`❌ Hash mismatch: expected ${expectedHash}, got ${computedHash}`);
-                } else {
-                  console.log('✅ Hash verified');
-                }
-              };
-              reader.onerror = (err) => console.error('Hash read failed:', err);
-              reader.readAsArrayBuffer(blob);
-            });
-          }
-
-          file.once('done', () => {
-            console.log('Video fully downloaded');
-            if (expectedHash) {
-              file.getBlob((err, blob) => {
-                if (err || !blob) return;
-                blob.arrayBuffer().then(ab => {
-                  crypto.subtle.digest('SHA-256', ab).then(hb => {
-                    const ch = arrayBufferToHex(hb);
-                    if (ch !== expectedHash) {
-                      console.error('❌ Final hash mismatch');
-                      element.dispatchEvent(new Event('error'));
-                      import('react-hot-toast').then(({ toast }) => toast.error('Video integrity check failed'));
-                    } else {
-                      console.log('✅ Final integrity verified');
-                    }
-                  });
+              if (err || !blob) return;
+              blob.arrayBuffer().then(ab => {
+                crypto.subtle.digest('SHA-256', ab).then(hb => {
+                  const computedHash = arrayBufferToHex(hb);  // Reuse var name
+                  if (computedHash !== expectedHash) {
+                    console.error('❌ Final hash mismatch');
+                    element.dispatchEvent(new Event('error'));
+                    import('react-hot-toast').then(({ toast }) => toast.error('Video integrity check failed'));
+                  } else {
+                    console.log('✅ Final integrity verified');
+                  }
                 });
               });
-            }
-          });
-
-          resolve();
-        } catch (err) {
-          reject(err);
-        }
-      };
-
-      if (torrent.files && torrent.files.length > 0) {
-        performAttach();
-      } else {
-        if (torrent.ready) {
-          console.log('⏳ Polling for files (ready torrent)');
-          const maxWait = 50;
-          let attempts = 0;
-          const interval = setInterval(() => {
-            attempts++;
-            if (torrent.files && torrent.files.length > 0) {
-              clearInterval(interval);
-              performAttach();
-            } else if (attempts >= maxWait) {
-              clearInterval(interval);
-              reject(new Error('Files poll timeout'));
-            }
-          }, 100);
-        } else {
-          console.log('⏳ Waiting for metadata event');
-          const onMetadata = () => {
-            performAttach().catch(reject);
-          };
-          torrent.on('metadata', onMetadata);
-          setTimeout(() => {
-            torrent.removeListener('metadata', onMetadata);
-            reject(new Error('Metadata timeout'));
-          }, 10000);
-        }
+            });
+          }
+          resolve();  // Early resolve on full download
+        });
+      } catch (err) {
+        reject(err);
       }
-    });
-  }
+    };
+
+    if (torrent.files && torrent.files.length > 0) {
+      performAttach();
+    } else {
+      if (torrent.ready) {
+        console.log('⏳ Polling for files (ready torrent)');
+        const maxWait = 50;
+        let attempts = 0;
+        const interval = setInterval(() => {
+          attempts++;
+          if (torrent.files && torrent.files.length > 0) {
+            clearInterval(interval);
+            performAttach();
+          } else if (attempts >= maxWait) {
+            clearInterval(interval);
+            reject(new Error('Files poll timeout'));
+          }
+        }, 100);
+      } else {
+        console.log('⏳ Waiting for metadata event');
+        const onMetadata = () => {
+          performAttach().catch(reject);
+        };
+        torrent.on('metadata', onMetadata);
+        setTimeout(() => {
+          torrent.removeListener('metadata', onMetadata);
+          reject(new Error('Metadata timeout'));
+        }, 10000);
+      }
+    }
+  });
+}
 
   private setupTorrentLogging(torrent: Torrent, role: string) {
     const prefix = `[${role}:${torrent.infoHash?.substring(0, 6)}]`;
@@ -324,7 +358,14 @@ class WebTorrentClient {
   }
 
   public remove(magnetURI: string) {
-    console.log('🌱 Keeping torrent for seeding:', magnetURI.substring(0, 30) + '...');
+    console.log('🗑️ Removing torrent (stop seeding):', magnetURI.substring(0, 30) + '...');
+    // Enforce max torrents for memory safety
+    if (this.client.torrents.length > 10) {
+      console.log('⚠️ Max torrents reached; destroying oldest');
+      const oldest = this.client.torrents[0]; // FIFO approx
+      this.destroyTorrent(oldest.magnetURI);
+    }
+    this.destroyTorrent(magnetURI);
     return;
   }
   

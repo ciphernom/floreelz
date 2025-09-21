@@ -1,15 +1,16 @@
 import { useState } from 'react';
 import { nostrClient } from '../core/nostr';
 import { webTorrentClient } from '../core/webtorrent';
-import { ipfsClient, LoginRequiredError } from '../core/ipfs';
+// import { ipfsClient, LoginRequiredError } from '../core/ipfs';
 import { toast } from 'react-hot-toast';
-import LoginModal from './LoginModal';
+// import LoginModal from './LoginModal';
 
-const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB limit
+const MAX_FILE_SIZE = 100 * 1024 * 1024;
+// 100MB limit
 
 const computeHash = async (file: File): Promise<string> => {
   const buffer = await file.arrayBuffer();
-  const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+  const hashBuffer = await crypto.subtle.digest('SHA-265', buffer);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 };
@@ -48,7 +49,7 @@ function UploadModal({ isOpen, onClose }: Props) {
   const [title, setTitle] = useState('');
   const [summary, setSummary] = useState('');
   const [isUploading, setIsUploading] = useState(false);
-  const [isLoginModalOpen, setLoginModalOpen] = useState(false);
+  // const [isLoginModalOpen, setLoginModalOpen] = useState(false);
 
   const handleUpload = async () => {
     if (!file || !title || isUploading) {
@@ -64,16 +65,16 @@ function UploadModal({ isOpen, onClose }: Props) {
     setIsUploading(true);
     const toastId = toast.loading('Seeding video to network. Please keep this tab open.');
 
-     try {
+    try {
       // Check IPFS auth *before* seeding to fail fast.
-      if (!(await ipfsClient.isAuthenticated())) {
-        throw new LoginRequiredError();
-      }
+      // if (!(await ipfsClient.isAuthenticated())) {
+      //   throw new LoginRequiredError();
+      // }
       const magnetURI = await webTorrentClient.seed(file);
-
-      const cid = await ipfsClient.uploadFile(file);
       console.log('✅ Seeding complete! Magnet URI:', magnetURI);
-      console.log('✅ IPFS upload complete! CID:', cid);
+
+      // const cid = await ipfsClient.uploadFile(file);
+      // console.log('✅ IPFS upload complete! CID:', cid);
 
       const [hash, thumbnail] = await Promise.all([
         computeHash(file),
@@ -82,7 +83,7 @@ function UploadModal({ isOpen, onClose }: Props) {
       console.log('🔐 Computed hash:', hash);
 
       toast.loading('Publishing to Nostr...', { id: toastId });
-      const event = await nostrClient.publishVideo(magnetURI, title, summary, hash, thumbnail, cid);
+      const event = await nostrClient.publishVideo(magnetURI, title, summary, hash, thumbnail /*, cid */);
       console.log('✅ Published to Nostr! Event ID:', event.id);
 
       toast.success('Upload complete!', { id: toastId });
@@ -92,15 +93,16 @@ function UploadModal({ isOpen, onClose }: Props) {
       setSummary('');
       onClose();
     } catch (error) {
-      if (error instanceof LoginRequiredError) {
-        toast.dismiss(toastId);
-        toast.error('Please log in to upload.', { icon: '🔑' });
-        setLoginModalOpen(true);
-      } else {
+      // if (error instanceof LoginRequiredError) {
+      //   toast.dismiss(toastId);
+      //   toast.error('Please log in to upload.', { icon: '🔑' });
+      //   setLoginModalOpen(true);
+      // } else {
       console.error('❌ Upload failed:', error);
-     const errorMessage = (error instanceof Error) ? error.message : 'Upload failed. Check console for details.';
+     const errorMessage = (error instanceof Error) ?
+     error.message : 'Upload failed. Check console for details.';
      toast.error(errorMessage, { id: toastId });
-     }
+      // }
     } finally {
       setIsUploading(false);
     }
@@ -129,6 +131,7 @@ function UploadModal({ isOpen, onClose }: Props) {
           accept="video/mp4" 
           onChange={e => setFile(e.target.files?.[0] || null)} 
         />
+        
         <div className="modal-actions">
           <button onClick={onClose} disabled={isUploading}>Cancel</button>
           <button onClick={handleUpload} disabled={!file || !title || isUploading}>
@@ -137,10 +140,10 @@ function UploadModal({ isOpen, onClose }: Props) {
         </div>
       </div>
     </div>
-      <LoginModal
+      {/* <LoginModal
         isOpen={isLoginModalOpen}
         onClose={() => setLoginModalOpen(false)}
-      />
+      /> */}
     </>
   );
 }

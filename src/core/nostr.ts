@@ -147,72 +147,68 @@ class NostrClient {
     console.log('✅ Report published');
   }
 
-// src/core/nostr.ts
 
 public subscribeToVideos(onVideo: (video: VideoData) => void) {
-    this.getFollowedPubkeys().then(async (followed) => {
-        await this.ensureInitialized(); // Ensure publicKey is available
-
-        // Create a Set of authors to automatically handle duplicates
-        const authorsToWatch = new Set(followed);
-        if (this.publicKey) {
-            authorsToWatch.add(this.publicKey); // <<< FIX: Always add yourself
-        }
-
-        const finalAuthors = Array.from(authorsToWatch);
-
-        const filters = [];
-
-        // Filter for videos from yourself and people you follow
-        if (finalAuthors.length > 0) {
-            filters.push({ kinds: [VIDEO_KIND], authors: finalAuthors, limit: 50 });
-        }
-
-        // Filter for videos liked by people you follow
-        if (followed.length > 0) {
-            filters.push({ kinds: [7], authors: followed, limit: 100 });
-        }
-        
-        // If there are no authors to watch (e.g., new user before key is known), fall back to global
-        if (filters.length === 0) {
-            filters.push({ kinds: [VIDEO_KIND], limit: 20 });
-        }
-        
-        this.videoSub = this.pool.subscribeMany(RELAYS, filters, {
-            onevent: async (event) => {
-                if (event.kind === VIDEO_KIND) {
-                    const videoData = this.parseVideoEvent(event as VideoEvent);
-                    const uploaderRep = this.reputationManager.getReputationScore(event.pubkey);
-                    if (!this.moderationSystem.shouldHideVideo(uploaderRep)) {
-                        onVideo(videoData);
-                    }
-                } else if (event.kind === 7) {
-                    const videoId = event.tags.find(t => t[0] === 'e')?.[1];
-                    if (videoId) {
-                        const videoEvent = await this.pool.querySync(RELAYS, { ids: [videoId], kinds: [VIDEO_KIND] });
-                        if (videoEvent.length > 0) {
-                            const videoData = this.parseVideoEvent(videoEvent[0] as VideoEvent);
-                            onVideo(videoData);
-                        }
-                    }
-                }
-            },
-            oneose: () => console.log('✅ Personalized feed loaded')
-        });
-    }).catch(err => {
-        console.error('Failed to load followed for personalized feed:', err);
-        // Fallback to global feed
-        this.videoSub = this.pool.subscribeMany(RELAYS, [{ kinds: [VIDEO_KIND], limit: 20 }], {
-            onevent: (event) => {
-                const videoData = this.parseVideoEvent(event as VideoEvent);
-                const uploaderRep = this.reputationManager.getReputationScore(event.pubkey);
-                if (!this.moderationSystem.shouldHideVideo(uploaderRep)) {
-                    onVideo(videoData);
-                }
+  this.getFollowedPubkeys().then((followed) => {
+    return this.ensureInitialized().then(() => {
+      // Create a Set of authors to automatically handle duplicates
+      const authorsToWatch = new Set(followed);
+      if (this.publicKey) {
+        authorsToWatch.add(this.publicKey); // Always add yourself
+      }
+      const finalAuthors = Array.from(authorsToWatch);
+      const filters = [];
+      // Filter for videos from yourself and people you follow
+      if (finalAuthors.length > 0) {
+        filters.push({ kinds: [VIDEO_KIND], authors: finalAuthors, limit: 50 });
+      }
+      // Filter for videos liked by people you follow
+      if (followed.length > 0) {
+        filters.push({ kinds: [7], authors: followed, limit: 100 });
+      }
+      
+      // If there are no authors to watch (e.g., new user before key is known), fall back to global
+      if (filters.length === 0) {
+        filters.push({ kinds: [VIDEO_KIND], limit: 20 });
+      }
+      
+      this.videoSub = this.pool.subscribeMany(RELAYS, filters, {
+        onevent: async (event) => {
+          if (event.kind === VIDEO_KIND) {
+            const videoData = this.parseVideoEvent(event as VideoEvent);
+            const uploaderRep = this.reputationManager.getReputationScore(event.pubkey);
+            if (!this.moderationSystem.shouldHideVideo(uploaderRep)) {
+              onVideo(videoData);
             }
-        });
+          } else if (event.kind === 7) {
+            const videoId = event.tags.find(t => t[0] === 'e')?.[1];
+            if (videoId) {
+              const videoEvent = await this.pool.querySync(RELAYS, { ids: [videoId], kinds: [VIDEO_KIND] });
+              if (videoEvent.length > 0) {
+                const videoData = this.parseVideoEvent(videoEvent[0] as VideoEvent);
+                onVideo(videoData);
+              }
+            }
+          }
+        },
+        oneose: () => console.log('✅ Personalized feed loaded')
+      });
     });
+  }).catch(err => {
+    console.error('Failed to initialize feed (followed or pubkey error):', err);
+    // Fallback to global feed
+    this.videoSub = this.pool.subscribeMany(RELAYS, [{ kinds: [VIDEO_KIND], limit: 20 }], {
+      onevent: (event) => {
+        const videoData = this.parseVideoEvent(event as VideoEvent);
+        const uploaderRep = this.reputationManager.getReputationScore(event.pubkey);
+        if (!this.moderationSystem.shouldHideVideo(uploaderRep)) {
+          onVideo(videoData);
+        }
+      }
+    });
+  });
 }
+
 
  private async getFollowedPubkeys(): Promise<string[]> {
    await this.ensureInitialized();
@@ -342,7 +338,9 @@ public async publishVideo(magnetURI: string, title: string, summary: string, has
       .sort((a, b) => b.createdAt - a.createdAt);
     
     this.userVideosCache.set(pubkey, videos);
-    
+    // Add TTL: { videos, timestamp: Date.now() }
+    // In get: if (Date.now() - cache.timestamp > 3600000) delete;    
+
     return videos;
   }
 
@@ -374,22 +372,19 @@ public async publishVideo(magnetURI: string, title: string, summary: string, has
     const videoIds = userVideos.map(v => v.id);
     
     let totalLikes = 0;
+    const uniqueFollowers = new Set(followerEvents.map(e => e.pubkey));
     if (videoIds.length > 0) {
-      const batchSize = 20;
-      for (let i = 0; i < videoIds.length; i += batchSize) {
-        const batch = videoIds.slice(i, i + batchSize);
-        const likeEvents = await this.pool.querySync(RELAYS, {
-          kinds: [7],
-          '#e': batch,
+      const likeEvents = await this.pool.querySync(RELAYS, {
+        kinds: [7],
+        '#e': videoIds,  // Single query for all
           limit: 500
         });
-        totalLikes += likeEvents.length;
-      }
+      totalLikes = likeEvents.length;
     }
     
     return {
       following: followingCount,
-      followers: followerEvents.length,
+      followers: uniqueFollowers.size,
       likes: totalLikes
     };
   }
@@ -463,27 +458,36 @@ public async publishVideo(magnetURI: string, title: string, summary: string, has
     return events[0].tags.some(t => t[0] === 'p' && t[1] === pubkey);
   }
 
-  public async zapUser(targetPubkey: string, lnurl: string, amountSats: number = 21): Promise<void> {
-    await this.ensureInitialized();
-    if (!this.usingExtension) {
-      toast.error("A NIP-07 extension is required to send a Zap.");
-      throw new Error("NIP-07 extension required for zapping");
-    }
+public async zapUser(targetPubkey: string, lnurl: string, amountSats: number = 21): Promise<void> {
+  await this.ensureInitialized();
+  if (!this.usingExtension) {
+    toast.error("A NIP-07 extension is required to send a Zap.");
+    throw new Error("NIP-07 extension required for zapping");
+  }
 
-    try {
+  try {
+    // Check if the extension supports the simplified zap function
+    if (this.extension.zap) {
       const zapEvent = await this.extension.zap(targetPubkey, amountSats * 1000, lnurl);
+      
       if (zapEvent) {
         toast.success(`⚡ Zap of ${amountSats} sats sent!`);
-        console.log('✅ Zap successful, event published by extension:', zapEvent);
+        console.log('✅ Zap successful via extension:', zapEvent);
       } else {
+        // This 'else' correctly handles when the zap is cancelled by the user
         toast.error('Zap was cancelled or failed in the extension.');
       }
-    } catch (e: any) {
-      console.error("❌ Zap failed:", e);
-      toast.error(`Zap failed: ${e.message}`);
-      throw e;
+    } else {
+      // This 'else' correctly handles when the extension is old and doesn't have .zap
+      toast.error("Your Nostr extension doesn't support zapping. Please update it.");
+      throw new Error("Extension does not support NIP-57 zaps.");
     }
+  } catch (e: any) {
+    console.error("❌ Zap failed:", e);
+    toast.error(`Zap failed: ${e.message}`);
+    throw e;
   }
+}
 
 
   public async getLikedVideos(): Promise<VideoData[]> {
