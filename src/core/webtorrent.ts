@@ -4,7 +4,7 @@ import type { Torrent, TorrentFile } from 'webtorrent';
 const TRACKER_OPTS = {
   announce: [
     'ws://localhost:8000', // Local tracker (run node tracker.js)
-   /* 'wss://tracker.btorrent.xyz',
+    'wss://tracker.btorrent.xyz',
     'wss://tracker.openwebtorrent.com',
     'wss://tracker.webtorrent.dev:443/announce',
     'wss://tracker.files.fm:7073/announce',
@@ -16,7 +16,6 @@ const TRACKER_OPTS = {
     'udp://open.demonii.com:1337/announce',
     'wss://tracker.torrent.eu.org:451/announce',  // 2025 active
     'wss://router.bittorrent.com:6881/announce'   // 2025 active
-*/
   ],
 };
 
