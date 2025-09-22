@@ -33,6 +33,7 @@ function ProfileView({ pubkey, onClose, onVideoSelect }: Props) {
   const [isSaving, setIsSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<TabType>('videos');
   const [userVideos, setUserVideos] = useState<VideoData[]>([]);
+  const [likeCounts, setLikeCounts] = useState<Map<string, number>>(new Map());
   const [videosError, setVideosError] = useState<string | null>(null);
   const [likedVideos, setLikedVideos] = useState<VideoData[]>([]);
   const [likedError, setLikedError] = useState<string | null>(null);
@@ -50,6 +51,7 @@ function ProfileView({ pubkey, onClose, onVideoSelect }: Props) {
     name: '',
     about: '',
     picture: '',
+    lud16: '',
   });
 
   useEffect(() => {
@@ -88,6 +90,19 @@ function ProfileView({ pubkey, onClose, onVideoSelect }: Props) {
   }, [targetPubkey, isOwnProfile]);
 
   useEffect(() => {
+    const loadVideoStats = async () => {
+      if (userVideos.length === 0) return;
+      const videoIds = userVideos.map(v => v.id);
+      const counts = await nostrClient.getVideoStats(videoIds);
+      setLikeCounts(counts);
+    };
+
+    loadVideoStats();
+  }, [userVideos]);
+
+
+
+  useEffect(() => {
     if (activeTab === 'liked' && isOwnProfile && likedVideos.length === 0) {
       loadLikedVideos();
     }
@@ -102,6 +117,7 @@ function ProfileView({ pubkey, onClose, onVideoSelect }: Props) {
         name: p.name || '',
         about: p.about || '',
         picture: p.picture || '',
+        lud16: p.lud16 || '',
       });
       // Check for LUD-16 (Lightning Address) and ensure not viewing own profile
       setCanZap(!!(p.lud16 && !isOwnProfile));
@@ -293,9 +309,9 @@ function ProfileView({ pubkey, onClose, onVideoSelect }: Props) {
         <span className="header-username">{displayName}</span>
         <div className="header-actions">
           {isOwnProfile && (
-            <button className="settings-button" onClick={() => setShowKeyExport(!showKeyExport)}>
+            <button className="settings-button" title="Export Keys" onClick={() => setShowKeyExport(!showKeyExport)}>
               <svg width="24" height="24" viewBox="0 0 24 24" fill="white">
-                <path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"/>
+                <path d="M12.65 10C11.83 7.67 9.61 6 7 6c-3.31 0-6 2.69-6 6s2.69 6 6 6c2.61 0 4.83-1.67 5.65-4H17v4h4v-4h2v-4H12.65zM7 14c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/>
               </svg>
             </button>
           )}
@@ -368,6 +384,13 @@ function ProfileView({ pubkey, onClose, onVideoSelect }: Props) {
               maxLength={80}
               rows={2}
             />
+              <input
+                type="text"
+                className="edit-name"
+                placeholder="yourname@provider.com"
+                value={editForm.lud16}
+                onChange={(e) => setEditForm({ ...editForm, lud16: e.target.value })}
+              />
           </div>
         ) : (
           <>
@@ -402,6 +425,7 @@ function ProfileView({ pubkey, onClose, onVideoSelect }: Props) {
                     name: profile?.name || '',
                     about: profile?.about || '',
                     picture: profile?.picture || '',
+                    lud16: profile?.lud16 || '',
                   });
                   setIsEditing(false);
                 }}>
@@ -432,11 +456,6 @@ function ProfileView({ pubkey, onClose, onVideoSelect }: Props) {
                 </button>
               )}
 
-              <button className="message-button">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/>
-                </svg>
-              </button>
             </div>
           )}
         </div>
@@ -507,10 +526,10 @@ function ProfileView({ pubkey, onClose, onVideoSelect }: Props) {
                 <div className="thumbnail-info">
                   <p className="video-title">{video.title}</p>
                   <div className="video-stats">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="white">
-                      <path d="M8 5v14l11-7z"/>
-                    </svg>
-                    <span>{Math.floor(Math.random() * 10000)}</span>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="white">
+                        <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+                      </svg>
+                    <span>{formatNumber(likeCounts.get(video.id) || 0)}</span>
                   </div>
                 </div>
               </div>

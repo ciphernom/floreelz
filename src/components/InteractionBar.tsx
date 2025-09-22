@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { nostrClient } from '../core/nostr';
 import { VideoData } from '../types';
 import { toast } from 'react-hot-toast';
+import { nip19 } from 'nostr-tools'; // ADDED: nip19 for encoding
 
 interface Props {
   video: VideoData;
@@ -14,12 +15,7 @@ function InteractionBar({ video }: Props) {
   const handleLike = async () => {
     const newLikedState = await nostrClient.likeVideo(video);
     setIsLiked(newLikedState);
-    
-    if (newLikedState) {
-      toast('❤️ Liked!');
-    } else {
-      toast('💔 Unliked');
-    }
+    toast(newLikedState ? '❤️ Liked!' : '💔 Unliked');
   };
 
   const handleReport = async (reason: string) => {
@@ -32,17 +28,24 @@ function InteractionBar({ video }: Props) {
     }
   };
 
+  // ADDED: Handler for the share button
+  const handleShare = () => {
+    try {
+      const nevent = nip19.neventEncode({ id: video.id, author: video.author, relays: [] });
+      navigator.clipboard.writeText(`nostr:${nevent}`);
+      toast.success('Copied link to clipboard!');
+    } catch (error) {
+      toast.error('Could not copy link.');
+    }
+  };
+
   return (
     <>
       <div className="interaction-bar">
-        <button 
-          onClick={handleLike}
-          style={{ color: isLiked ? 'red' : 'white' }}
-        >
+        <button onClick={handleLike} style={{ color: isLiked ? 'red' : 'white' }}>
           ❤️
         </button>
-        <button>💬</button>
-        <button>🔗</button>
+        <button onClick={handleShare} title="Share">🔗</button>
         <button onClick={() => setShowReportModal(true)} title="Report">
           ⚠️
         </button>

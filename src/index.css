@@ -407,3 +407,46 @@ body {
   font-size: 0.8rem;
   margin-left: 10px;
 }
+
+
+
+.author-line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.author-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.author-actions button {
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: white;
+  border-radius: 50%;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  transition: background-color 0.2s;
+}
+
+.author-actions button:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.follow-btn.following {
+  background-color: #f0f0f0;
+  color: #111;
+}
+
+.zap-btn {
+  color: #f5b900; /* Lightning yellow */
+}

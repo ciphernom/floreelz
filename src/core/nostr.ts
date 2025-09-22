@@ -148,30 +148,39 @@ class NostrClient {
   }
 
 
-public subscribeToVideos(onVideo: (video: VideoData) => void) {
-  this.getFollowedPubkeys().then((followed) => {
-    return this.ensureInitialized().then(() => {
-      // Create a Set of authors to automatically handle duplicates
-      const authorsToWatch = new Set(followed);
-      if (this.publicKey) {
-        authorsToWatch.add(this.publicKey); // Always add yourself
+  public subscribeToVideos(
+    feedType: 'global' | 'following',
+    onVideo: (video: VideoData) => void
+  ) {
+    // Always clean up the previous subscription before creating a new one
+    if (this.videoSub) {
+      this.videoSub.close();
+    }
+
+    this.ensureInitialized().then(async () => {
+      let filters: any[] = [];
+      console.log(`[Nostr] Subscribing to '${feedType}' feed.`);
+
+      if (feedType === 'following') {
+        const followed = await this.getFollowedPubkeys();
+        // Only create a subscription if the user is actually following people
+        if (followed.length > 0) {
+          filters.push({ kinds: [VIDEO_KIND], authors: followed, limit: 50 });
+          filters.push({ kinds: [7], authors: followed, limit: 100 }); // For videos liked by followed users
+        }
+      } else { // 'global' feed
+        // A limit of ~40 provides a good balance of content without overwhelming relays.
+        filters.push({ kinds: [VIDEO_KIND], limit: 40 });
       }
-      const finalAuthors = Array.from(authorsToWatch);
-      const filters = [];
-      // Filter for videos from yourself and people you follow
-      if (finalAuthors.length > 0) {
-        filters.push({ kinds: [VIDEO_KIND], authors: finalAuthors, limit: 50 });
-      }
-      // Filter for videos liked by people you follow
-      if (followed.length > 0) {
-        filters.push({ kinds: [7], authors: followed, limit: 100 });
-      }
-      
-      // If there are no authors to watch (e.g., new user before key is known), fall back to global
+
+      // Do not create a subscription if no valid filters were generated
+      // (e.g., a new user on the 'following' tab).
       if (filters.length === 0) {
-        filters.push({ kinds: [VIDEO_KIND], limit: 20 });
+        console.log(`[Nostr] No filters for '${feedType}' feed, subscription skipped.`);
+        onVideo({} as any); // Send empty object to trigger isLoading false
+        return;
       }
-      
+
       this.videoSub = this.pool.subscribeMany(RELAYS, filters, {
         onevent: async (event) => {
           if (event.kind === VIDEO_KIND) {
@@ -191,26 +200,37 @@ public subscribeToVideos(onVideo: (video: VideoData) => void) {
             }
           }
         },
-        oneose: () => console.log('✅ Personalized feed loaded')
+        oneose: () => console.log(`[Nostr] End of stored events for '${feedType}' feed.`)
       });
+    }).catch(err => {
+      console.error('[Nostr] Failed to initialize feed subscription:', err);
     });
-  }).catch(err => {
-    console.error('Failed to initialize feed (followed or pubkey error):', err);
-    // Fallback to global feed
-    this.videoSub = this.pool.subscribeMany(RELAYS, [{ kinds: [VIDEO_KIND], limit: 20 }], {
-      onevent: (event) => {
-        const videoData = this.parseVideoEvent(event as VideoEvent);
-        const uploaderRep = this.reputationManager.getReputationScore(event.pubkey);
-        if (!this.moderationSystem.shouldHideVideo(uploaderRep)) {
-          onVideo(videoData);
-        }
-      }
-    });
+  }
+
+public async getVideoStats(videoIds: string[]): Promise<Map<string, number>> {
+  const counts = new Map<string, number>();
+  if (videoIds.length === 0) {
+    return counts;
+  }
+
+  // Fetch all 'like' events (kind 7) that tag any of the video IDs
+  const likeEvents = await this.pool.querySync(RELAYS, {
+    kinds: [7],
+    '#e': videoIds,
   });
+
+  // Count the likes for each video ID
+  for (const event of likeEvents) {
+    const taggedVideoId = event.tags.find(t => t[0] === 'e')?.[1];
+    if (taggedVideoId) {
+      counts.set(taggedVideoId, (counts.get(taggedVideoId) || 0) + 1);
+    }
+  }
+
+  return counts;
 }
 
-
- private async getFollowedPubkeys(): Promise<string[]> {
+ public async getFollowedPubkeys(): Promise<string[]> {
    await this.ensureInitialized();
    const events = await this.pool.querySync(RELAYS, {
      kinds: [3],

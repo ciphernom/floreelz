@@ -38,10 +38,10 @@ FloReelz is a decentralized video-sharing application implemented in React and T
 
 The application follows a client-side architecture:
 
--   **Nostr Layer**: Handles event publishing and subscription. Video metadata is published as custom Nostr events (kind 1063, following NIP-52 for video notes). Likes are NIP-25 reactions on video events. Profiles use NIP-05 and NIP-19 for display names and bech32 encoding.
+-   **Nostr Layer**: Handles event publishing and subscription. Video metadata is published as custom Nostr events (kind 38234). Likes are NIP-25 reactions on video events. Profiles use NIP-05 and NIP-19 for display names and bech32 encoding.
 -   **WebTorrent Layer**: Generates magnet URIs for uploaded videos and streams them via browser-based torrents. Includes DHT support via `bittorrent-dht` shim for peer discovery.
 -   **IPFS/Storacha Layer**: Uploads videos to IPFS via Storacha client, requiring email-based magic-link authentication. CIDs serve as fallback URLs if WebTorrent peers are unavailable.
--   **Frontend Rendering**: React components manage state with hooks. Swiper provides vertical scrolling for the feed. Service Worker (via Workbox) caches assets, Nostr events (NetworkFirst, 24h expiration), and video blobs (IDB persistence).
+-   **Frontend Rendering**: React components manage state with hooks. Swiper provides vertical scrolling for the feed. Service Worker (via Workbox) precaches core assets. It uses a NetworkOnly strategy for video streams to prioritize P2P connections.
 -   **Data Flow**: On upload: File → SHA-256 hash → WebTorrent seed → IPFS pin → Nostr publish. On playback: Magnet URI → WebTorrent stream (15s timeout) → IPFS fallback → Blob URL for `<video>` element.
 
 Error handling includes toasts for failures and retry mechanisms in the video player.
@@ -51,10 +51,11 @@ Error handling includes toasts for failures and retry mechanisms in the video pl
 ## ✨ Features
 
 -   **Video Upload**: Select MP4 file, compute SHA-256 hash, extract thumbnail at 1s seek (320px width, WebP format), seed via WebTorrent, pin to IPFS, publish Nostr event with magnet URI, CID, title, summary, hash, and thumbnail.
--   **Video Feed**: Subscribes to Nostr kind 1063 events, limits to 50 recent videos, renders in Swiper with virtual indexing for performance. Displays title, summary, author (resolved via NIP-19 npub or profile name).
--   **Video Playback**: Streams via WebTorrent to `<video>` element (loop, inline, muted by default). Mutes via click or button. Falls back to IPFS after 15s timeout. Caches blobs in IndexedDB via Service Worker.
--   **Interactions**: Like/unlike via NIP-25 reaction events; reports publish kind 1984 events with reason (spam, NSFW, etc.).
--   **Profiles**: Fetches NIP-05 metadata; supports follow/unfollow (kind 3 contacts), zaps (NIP-57, hardcoded 100 sats), and stats (followers, likes). Own profile editable via NIP-05 update.
+-   **Video Feed**: Subscribes to Nostr kind 38234 events, limits to 50 recent videos, renders in Swiper with virtual indexing for performance. Displays title, summary, author (resolved via NIP-19 npub or profile name).
+-   **Video Playback**: Streams via WebTorrent to `<video>` element (loop, inline, muted by default). Mutes via click or button. Falls back to IPFS after 15s timeout. Magnet URI → WebTorrent stream (15s timeout) → IPFS fallback → Blob URL for the <video> element. The Service Worker intentionally does not cache video streams.
+-   **Dual Feed System**: Users can toggle between a global "For You" feed for discovery and a personalized "Following" feed.
+-   **Interactions**: Like/unlike via NIP-25 reaction events, shareable `nevent` links for videos, and a reporting system for moderation.
+-   **Profiles**: View user profiles with stats (followers, following, total likes received). Supports follow/unfollow (kind 3 events) and zapping via a Lightning Address (NIP-57). Users can edit their own profile, including their name, bio, and Lightning Address. Video thumbnails on the profile grid display their total like count.
 -   **Authentication**: Storacha email login for IPFS; Nostr via browser extension (NIP-07).
 -   **PWA Caching**: Precaches assets; runtime caches Nostr events and video blobs with expiration.
 -   **Moderation**: Report modal with predefined reasons, publishes to Nostr for relay moderation.
@@ -71,7 +72,7 @@ Error handling includes toasts for failures and retry mechanisms in the video pl
     -   **Storacha**: `@storacha/client` 1.7 for IPFS upload/auth (magic links).
 -   **UI Components**: Swiper 12.0 (Mousewheel/Virtual modules for vertical feed), React Hot Toast 2.6 for notifications.
 -   **Utilities**: `@noble/hashes` 2.0 for SHA-256; `idb` 8.0 for IndexedDB video caching.
--   **PWA/Service Worker**: `vite-plugin-pwa` 0.20 with Workbox 7.1 (precaching, NetworkFirst for events, NetworkOnly for WSS, custom video handler with IDB).
+-   **PWA/Service Worker**: `vite-plugin-pwa` 0.20 with Workbox 7.1 (precaching, NetworkFirst for events, NetworkOnly for WSS, NetworkOnly for video streams).
 -   **Development**: ESLint 9.33 (with React hooks/refresh plugins), tsconfig with ES2023 target.
 
 Dependencies are listed in `package.json`; no external APIs beyond relays/trackers.
@@ -160,7 +161,7 @@ Dependencies are listed in `package.json`; no external APIs beyond relays/tracke
 
 ### Browsing and Playback
 
--   The feed subscribes to `kind: 1063` events on load.
+-   The feed subscribes to `kind: 38234` events on load.
 -   The active slide auto-plays (muted; toggle via click).
 -   Fallback logic in `VideoPlayer.tsx`:
     ```tsx
@@ -174,7 +175,6 @@ Dependencies are listed in `package.json`; no external APIs beyond relays/tracke
       }
     });
     ```
--   Blobs are cached in the Service Worker: `registerRoute` for video destinations → fetch → `cache.put` + IDB store.
 
 ### Profiles and Interactions
 
@@ -195,7 +195,7 @@ floreelz/
 │   ├── components/         # UI components
 │   │   ├── InteractionBar.tsx  # Like/report buttons, modals
 │   │   ├── LoginModal.tsx      # Storacha auth
-│   │   ├── ProfileView.tsx     # Profile tabs (videos/liked/private)
+│   │   ├── ProfileView.tsx     # Profile tabs (videos/liked); private tab is a placeholder for a future feature.
 │   │   ├── SkeletonLoader.tsx  # Loading placeholders
 │   │   ├── UploadModal.tsx     # Upload form + thumbnail extraction
 │   │   ├── VideoFeed.tsx       # Swiper feed + author resolution

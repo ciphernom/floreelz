@@ -12,8 +12,6 @@ const TRACKER_OPTS = {
     // 2025 fresh from ngosang/trackerslist 
     'wss://tracker.sloppyta.co:443/announce',
     'wss://tracker.zt1.cloud:443/announce',
-    'udp://tracker.opentrackr.org:1337/announce', // Hybrid UDP for better dev
-    'udp://open.demonii.com:1337/announce',
     'wss://tracker.torrent.eu.org:451/announce',  // 2025 active
     'wss://router.bittorrent.com:6881/announce'   // 2025 active
   ],
@@ -36,13 +34,22 @@ class WebTorrentClient {
   private seedingTorrents: Map<string, SeedingEntry> = new Map(); // Cache original File
 
 constructor() {
-  this.client = new WebTorrent();
-  
-  console.log('🚀 WebTorrent client initialized');
-  
-  this.client.on('error', (err: string | Error) => {
-    console.error('❌ WebTorrent CLIENT ERROR:', err);
-  });
+    // Configuration with public STUN servers to help browsers connect
+    const rtcConfig = {
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:global.stun.twilio.com:3478' }
+      ]
+    };
+
+    // @ts-ignore - The official WebTorrent types are missing rtcConfig, but the library supports it.
+    this.client = new WebTorrent({ rtcConfig });
+    
+    console.log('🚀 WebTorrent client initialized with RTC config');
+
+    this.client.on('error', (err: string | Error) => {
+      console.error('❌ WebTorrent CLIENT ERROR:', err);
+    });
 
   setInterval(() => {
     if (this.client.torrents.length === 0) return; // Skip if idle

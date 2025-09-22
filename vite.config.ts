@@ -63,8 +63,11 @@ export default defineConfig({
               purpose: 'any maskable'
             }
           ]
-        }
-    }),
+        },
+          strategies: 'injectManifest', // Use this strategy
+          srcDir: 'public',             // Directory where your custom SW is
+          filename: 'sw.js'             // The name of your service worker file
+        }),
   ],
   optimizeDeps: {
     include: [
